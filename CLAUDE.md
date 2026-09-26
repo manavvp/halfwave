@@ -38,9 +38,10 @@ optimize for me *understanding* the system, not just for it working.
 
 ## Stack (fixed for V1)
 
-- **Kafka:** hosted (Confluent Cloud or Redpanda free tier), Avro + Schema Registry
+- **Kafka:** Confluent Cloud (hosted), Avro + Confluent Schema Registry
 - **Producers:** Python (`confluent-kafka`, `requests`)
-- **Bronze:** hand-written Spark Structured Streaming on Databricks (`foreachBatch` + Delta MERGE)
+- **Bronze:** hand-written Spark Structured Streaming on Databricks (`foreachBatch` + idempotent
+  Delta append via `txnAppId`/`txnVersion`)
 - **Silver:** Lakeflow Spark Declarative Pipelines (SDP) with expectations
 - **Storage/governance:** Delta Lake, Unity Catalog (catalog `radar`, schemas `bronze`/`silver`/`gold`)
 - **Gold:** dbt (`dbt-databricks`)
@@ -86,13 +87,16 @@ sources → Python producers → Kafka topics → BRONZE (Structured Streaming) 
   entity must require only a YAML change. The registry is loaded into `dim_entity`.
 - **Bronze:**
   - Raw payload plus Kafka metadata (topic, partition, offset, ingest_ts). No business logic.
-  - Idempotent writes via MERGE on `(source, source_event_id)`.
+  - Append-only. Each micro-batch is written with `txnAppId`/`txnVersion` (= batchId), so a
+    retried batch is a no-op. Bronze does **not** dedup: source duplicates are kept as evidence.
   - One table per topic.
 - **Silver:**
   - Normalize into the common event model (below).
   - Resolve entities against `dim_entity`. Unresolved or ambiguous records go to a quarantine table.
-  - Dedup with `dropDuplicatesWithinWatermark` on event time.
-  - The only streaming aggregation is daily buckets per entity per signal.
+  - The only dedup in the pipeline: `dropDuplicatesWithinWatermark` on `(source, source_event_id)`
+    with an event-time watermark.
+  - The only streaming aggregation is daily buckets per entity per signal, for GH Archive and HN.
+    PyPI and Docker Hub rows are already daily and are only normalized.
   - Expectations for data quality.
 - **Rolling windows (7/14/30-day) live in dbt, never in streaming state.**
 - **Gold:** dbt marts plus `signal_evidence`, which maps every signal row → silver event_ids →
@@ -149,7 +153,7 @@ docs/                     # SPEC.md, decisions.md, phase2.md, runbook.md
 
 ```
 ruff check . && pytest                                            # lint + unit tests
-python producers/replay.py --mode backfill --days 90              # build history
+python producers/replay.py --mode backfill --days 90              # build history (validate with --days 1 first)
 python producers/replay.py --mode firehose --hours 24 --speed 100 # throughput run
 cd dbt && dbt build                                               # models + tests
 uvicorn serving.api.main:app --reload                             # local API
