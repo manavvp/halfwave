@@ -1,0 +1,282 @@
+# Entity registry: the single source of truth for what the radar tracks.
+# Adding an entity is a YAML change only. Validated by producers/registry.py.
+#
+# Fields
+#   id                    stable slug, used as entity_id everywhere downstream
+#   name                  display name
+#   type                  inference_engine | serving_framework | local_runtime | llm_gateway
+#   aliases               lower-case strings for HN text matching; avoid bare common words
+#   github_repo           owner/name (current name; checked 2026-10-02)
+#   pypi_package          package on pypi.org, or null
+#   docker_image          namespace/name on Docker Hub, or null
+#   adoption_proxy_notes  what the PyPI/Docker numbers actually measure for this project
+#
+# Handles were verified against the GitHub, pypistats and Docker Hub APIs on 2026-10-02.
+
+entities:
+  # --- inference engines -------------------------------------------------------------------
+  - id: vllm
+    name: vLLM
+    type: inference_engine
+    aliases: [vllm]
+    github_repo: vllm-project/vllm
+    pypi_package: vllm
+    docker_image: vllm/vllm-openai
+    adoption_proxy_notes: PyPI and Docker both measure the server itself. Strongest proxies here.
+
+  - id: sglang
+    name: SGLang
+    type: inference_engine
+    aliases: [sglang]
+    github_repo: sgl-project/sglang
+    pypi_package: sglang
+    docker_image: lmsysorg/sglang
+    adoption_proxy_notes: PyPI and Docker both measure the server itself.
+
+  - id: tgi
+    name: Text Generation Inference
+    type: inference_engine
+    aliases: [text-generation-inference, text generation inference]
+    github_repo: huggingface/text-generation-inference
+    pypi_package: text-generation
+    docker_image: null
+    adoption_proxy_notes: >-
+      Control: repo archived 2026-03, expect attention decay. Images ship on GHCR (no public
+      pull counts). PyPI `text-generation` is the client SDK, not the server.
+
+  - id: tensorrt-llm
+    name: TensorRT-LLM
+    type: inference_engine
+    aliases: [tensorrt-llm, tensorrt llm, trt-llm]
+    github_repo: NVIDIA/TensorRT-LLM
+    pypi_package: tensorrt-llm
+    docker_image: null
+    adoption_proxy_notes: >-
+      Mostly deployed from NVIDIA NGC containers, which publish no pull counts. PyPI
+      undercounts.
+
+  - id: lmdeploy
+    name: LMDeploy
+    type: inference_engine
+    aliases: [lmdeploy]
+    github_repo: InternLM/lmdeploy
+    pypi_package: lmdeploy
+    docker_image: openmmlab/lmdeploy
+    adoption_proxy_notes: PyPI and Docker both measure the server itself.
+
+  - id: mlc-llm
+    name: MLC LLM
+    type: inference_engine
+    aliases: [mlc-llm, mlc llm]
+    github_repo: mlc-ai/mlc-llm
+    pypi_package: null
+    docker_image: null
+    adoption_proxy_notes: >-
+      Attention-only. Wheels are distributed from mlc.ai rather than PyPI, and there is no
+      Docker Hub image.
+
+  - id: exllamav2
+    name: ExLlamaV2
+    type: inference_engine
+    aliases: [exllamav2, exllama]
+    github_repo: turboderp-org/exllamav2
+    pypi_package: exllamav2
+    docker_image: null
+    adoption_proxy_notes: PyPI only. Many users build from source, which no proxy sees.
+
+  - id: ctranslate2
+    name: CTranslate2
+    type: inference_engine
+    aliases: [ctranslate2]
+    github_repo: OpenNMT/CTranslate2
+    pypi_package: ctranslate2
+    docker_image: null
+    adoption_proxy_notes: >-
+      PyPI is dominated by faster-whisper (speech-to-text), which depends on it. Not a clean
+      LLM-serving adoption signal.
+
+  # --- local runtimes ----------------------------------------------------------------------
+  - id: llama-cpp
+    name: llama.cpp
+    type: local_runtime
+    aliases: [llama.cpp, llamacpp, llama-cpp]
+    github_repo: ggml-org/llama.cpp
+    pypi_package: llama-cpp-python
+    docker_image: null
+    adoption_proxy_notes: >-
+      PyPI `llama-cpp-python` is a third-party binding, a proxy for Python usage only. Server
+      images ship on GHCR. Most users run release binaries or build from source.
+
+  - id: ollama
+    name: Ollama
+    type: local_runtime
+    aliases: [ollama]
+    github_repo: ollama/ollama
+    pypi_package: ollama
+    docker_image: ollama/ollama
+    adoption_proxy_notes: >-
+      PyPI `ollama` is the client SDK: it counts apps that call Ollama, not servers. Docker
+      measures the server. Desktop installs via the native installer are invisible.
+
+  - id: localai
+    name: LocalAI
+    type: local_runtime
+    aliases: [localai]
+    github_repo: mudler/LocalAI
+    pypi_package: null
+    docker_image: localai/localai
+    adoption_proxy_notes: Docker only; it measures the server.
+
+  - id: gpt4all
+    name: GPT4All
+    type: local_runtime
+    aliases: [gpt4all]
+    github_repo: nomic-ai/gpt4all
+    pypi_package: gpt4all
+    docker_image: null
+    adoption_proxy_notes: >-
+      Control: repo inactive since 2025-05. Desktop app installs are invisible. PyPI is the
+      Python bindings.
+
+  - id: llamafile
+    name: llamafile
+    type: local_runtime
+    aliases: [llamafile]
+    github_repo: mozilla-ai/llamafile
+    pypi_package: null
+    docker_image: null
+    adoption_proxy_notes: >-
+      Attention-only. Ships as single-file executables via GitHub releases. Repo moved from
+      Mozilla-Ocho/llamafile.
+
+  - id: mlx-lm
+    name: MLX LM
+    type: local_runtime
+    aliases: [mlx-lm, mlx_lm]
+    github_repo: ml-explore/mlx-lm
+    pypi_package: mlx-lm
+    docker_image: null
+    adoption_proxy_notes: Apple-silicon only. PyPI measures the library itself.
+
+  # --- serving frameworks ------------------------------------------------------------------
+  - id: triton-server
+    name: Triton Inference Server
+    type: serving_framework
+    aliases: [triton inference server, tritonserver, triton server]
+    github_repo: triton-inference-server/server
+    pypi_package: tritonclient
+    docker_image: null
+    adoption_proxy_notes: >-
+      Server ships via NVIDIA NGC (no public pull counts). PyPI `tritonclient` is the client
+      SDK and is often installed transitively. Bare "triton" is deliberately not an alias,
+      because it collides with OpenAI's Triton language.
+
+  - id: kserve
+    name: KServe
+    type: serving_framework
+    aliases: [kserve]
+    github_repo: kserve/kserve
+    pypi_package: kserve
+    docker_image: kserve/kserve-controller
+    adoption_proxy_notes: >-
+      Docker counts the controller image, roughly one pull per cluster install or upgrade.
+      PyPI is the SDK.
+
+  - id: bentoml
+    name: BentoML
+    type: serving_framework
+    aliases: [bentoml]
+    github_repo: bentoml/BentoML
+    pypi_package: bentoml
+    docker_image: null
+    adoption_proxy_notes: >-
+      PyPI measures the library. Images are built per model, so there is no single image to
+      count.
+
+  - id: xinference
+    name: Xinference
+    type: serving_framework
+    aliases: [xinference, xorbits inference]
+    github_repo: xorbitsai/inference
+    pypi_package: xinference
+    docker_image: xprobe/xinference
+    adoption_proxy_notes: >-
+      PyPI and Docker both measure the server. Docker is the main install path, so expect low
+      PyPI next to high Docker.
+
+  - id: seldon-core
+    name: Seldon Core
+    type: serving_framework
+    aliases: [seldon core, seldon-core]
+    github_repo: SeldonIO/seldon-core
+    pypi_package: seldon-core
+    docker_image: seldonio/seldon-core-operator
+    adoption_proxy_notes: >-
+      The Docker image is the v1 operator (last updated 2026-01). v2 ships under other images,
+      so Docker undercounts current use.
+
+  - id: torchserve
+    name: TorchServe
+    type: serving_framework
+    aliases: [torchserve]
+    github_repo: pytorch/serve
+    pypi_package: torchserve
+    docker_image: pytorch/torchserve
+    adoption_proxy_notes: >-
+      Control: repo archived 2025-08. Expect attention to decay while installs linger.
+
+  # --- LLM gateways ------------------------------------------------------------------------
+  - id: litellm
+    name: LiteLLM
+    type: llm_gateway
+    aliases: [litellm]
+    github_repo: BerriAI/litellm
+    pypi_package: litellm
+    docker_image: litellm/litellm
+    adoption_proxy_notes: >-
+      PyPI is inflated by transitive installs (many agent frameworks depend on litellm). The
+      proxy's primary image is on GHCR, so Docker Hub undercounts.
+
+  - id: portkey-gateway
+    name: Portkey AI Gateway
+    type: llm_gateway
+    aliases: [portkey]
+    github_repo: Portkey-AI/gateway
+    pypi_package: portkey-ai
+    docker_image: portkeyai/gateway
+    adoption_proxy_notes: >-
+      PyPI `portkey-ai` is the SDK for Portkey's hosted product, not only the open-source
+      gateway. Docker measures the gateway itself.
+
+  - id: bifrost
+    name: Bifrost
+    type: llm_gateway
+    aliases: [bifrost llm, bifrost gateway, maximhq bifrost]
+    github_repo: maximhq/bifrost
+    pypi_package: null
+    docker_image: maximhq/bifrost
+    adoption_proxy_notes: >-
+      Go project, so Docker only. Bare "bifrost" is a common word and is deliberately not an
+      alias.
+
+  - id: new-api
+    name: New API
+    type: llm_gateway
+    aliases: [new-api, newapi]
+    github_repo: QuantumNous/new-api
+    pypi_package: null
+    docker_image: calciumion/new-api
+    adoption_proxy_notes: >-
+      Docker only. A fork of one-api. Usage is concentrated in China, so HN attention will
+      undercount it.
+
+  - id: higress
+    name: Higress
+    type: llm_gateway
+    aliases: [higress]
+    github_repo: higress-group/higress
+    pypi_package: null
+    docker_image: null
+    adoption_proxy_notes: >-
+      Attention-only. Images ship on Alibaba's registry, which publishes no pull counts. Repo
+      moved from alibaba/higress.

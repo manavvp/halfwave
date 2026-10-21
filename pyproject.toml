@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "halfwave"
+version = "0.1.0"
+description = "AI-Infra Adoption Radar: does rising attention translate into observable adoption?"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "confluent-kafka[avro,schemaregistry]>=2.5",
+    "requests>=2.32",
+    "pymongo>=4.8",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.6", "pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["producers*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "ANN"]
+
+[tool.ruff.lint.per-file-ignores]
+# Databricks notebooks get `dbutils`/`spark` injected at runtime and import after `%pip` cells.
+"databricks/**/*.py" = ["F821", "E402"]
+"tests/**/*.py" = ["ANN"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
