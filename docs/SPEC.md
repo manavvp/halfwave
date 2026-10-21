@@ -11,12 +11,12 @@ score; the methodology is explicit and lives in dbt.
 
 ## Entities
 
-- ~25 projects defined in `config/entities.yaml`. Each entry has: id, type, aliases, GitHub repo,
-  PyPI package, Docker Hub image, and `adoption_proxy_notes` (what the PyPI/Docker numbers actually
-  measure for this project, e.g. "PyPI package is the client SDK, not the server").
+- 25 projects defined in `config/entities.yaml` (D010). Each entry has: id, name, type, aliases,
+  GitHub repo, PyPI package, Docker Hub image, and `adoption_proxy_notes` (what the PyPI/Docker
+  numbers actually measure for this project, e.g. "PyPI package is the client SDK, not the server").
 - Types: `inference_engine`, `serving_framework`, `local_runtime`, `llm_gateway`.
 - Examples: vLLM, SGLang, TGI, TensorRT-LLM, llama.cpp, Ollama, LMDeploy, MLC-LLM, Triton
-  Inference Server, Ray Serve, KServe, LiteLLM.
+  Inference Server, KServe, LiteLLM. Ray Serve is excluded (D010).
 
 ## Sources (all flow through Kafka)
 
@@ -27,7 +27,13 @@ score; the methodology is explicit and lives in dbt.
 | PyPI downloads (pypistats) | adoption | daily | ~180 days |
 | Docker Hub pull counts (cumulative snapshots) | adoption | daily | from first poll |
 
-Known limitation: adoption history is shorter than attention history. State this in the README.
+Known limitations (state these in the README):
+- Adoption history is shorter than attention history. Docker Hub history starts 2026-10-21 (first live poll; planned for 2026-10-02).
+- Adoption coverage is partial: only 13 of 25 entities have a Docker Hub image, because the
+  rest ship on GHCR, NVIDIA NGC or vendor registries, which publish no pull counts. Several PyPI
+  packages are client SDKs or transitive dependencies. See `adoption_proxy_notes` per entity.
+
+Daily pollers run as a scheduled Databricks Job (D008).
 
 ## Kafka
 
@@ -102,10 +108,15 @@ Iceberg, Snowflake, text entity resolution over the full firehose.
 ## Open decisions
 
 - ~~Hosted Kafka provider~~ → Confluent Cloud (D001)
-- MongoDB (default) vs DynamoDB
-- Final entity list
+- MongoDB (default; connectivity from serverless verified 2026-10-01) vs DynamoDB
+- ~~Final entity list~~ → 25 entities (D010)
 
 ## Timeline (revised, D007)
+
+> **Superseded by D011 (2026-10-21):** the dates below no longer apply. Build order is now:
+> run the Docker poller → Bronze (on the Docker topic) → GH Archive producer → PyPI producer →
+> Silver → Gold → end-to-end job + README → HN, SCD2, Mongo + FastAPI. The table is kept for
+> history; its reading list still applies.
 
 Build vertically: one thin slice end to end before widening. Applications go out with the slice;
 widening continues before onsites.

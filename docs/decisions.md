@@ -131,3 +131,82 @@ Numbered in order; superseded entries stay and are marked, never deleted.
   quarantine.
 - **Interview angle:** "I shipped a thin, complete slice and widened it, rather than a wide pipeline
   with no output."
+
+## D008: Daily pollers run as a scheduled serverless Databricks Job
+*2026-10-02*
+
+- **Context:** Docker Hub, PyPI and HN are polled daily, and SPEC.md didn't say where producers
+  run. Docker Hub only exposes the current pull count, so every missed day is a permanent gap.
+  Verified 2026-10-02: serverless can reach hub.docker.com, pypistats.org and hn.algolia.com.
+- **Decision:** Each poller is a plain Python module (`python -m producers.sources.<source>`)
+  that reads only env vars. A thin notebook in `databricks/jobs/` copies secrets from scope
+  `radar` into env vars and calls the module's `main()`. A Databricks Job runs it daily. The
+  same code runs locally for development.
+- **Alternatives:** A laptop cron or launchd job, rejected because it misses days whenever the
+  laptop is asleep. Calling `dbutils.secrets` from inside the producer, rejected because the
+  code would then only run on Databricks and would need mocks locally.
+- **Trade-off:** It uses a little daily compute quota (seconds of serverless time per run). The
+  backfill and firehose replays still run locally, because they're bounded, one-off and
+  download-heavy.
+- **Interview angle:** "The scheduler lives on the platform that's always on. The code doesn't
+  know where it runs, because config comes from env vars and the wrapper adapts the platform's
+  secret store."
+
+## D009: `radar.dockerhub.snapshots.v1`: 1 partition, unlimited retention, delete policy, keyed by image
+*2026-10-02*
+
+- **Context:** About 13 messages a day. Bronze won't exist for days, and Confluent's default
+  retention (7 days) would delete snapshots before bronze reads them. Kafka is our durable
+  history until then.
+- **Decision:** 1 partition, `retention.ms = -1` (unlimited), `cleanup.policy = delete`. The
+  message key is the image name.
+- **Alternatives:** **Compaction** (`cleanup.policy = compact`) looks natural for "latest value
+  per key", but it would keep only the newest snapshot per image and destroy exactly the
+  history we need. More partitions would add parallelism we don't need at 13 messages a day.
+- **Trade-off:** Storage grows forever, by roughly a few KB a day, which is negligible. Adding
+  partitions later would remap keys to partitions and break per-key ordering, so the
+  partition count is fixed at creation.
+- **Interview angle:** "Compaction is a table, retention is a log. I needed a log, because the
+  value of a snapshot is in its history."
+
+## D010: Entity list v1: 25 entities; Ray Serve excluded; controls and attention-only entities labelled
+*2026-10-02*
+
+- **Context:** Handles were verified against the GitHub, pypistats and Docker Hub APIs on
+  2026-10-02. Coverage is uneven: many projects ship images on GHCR, NVIDIA NGC or a vendor
+  registry, none of which publish pull counts.
+- **Decision:** 25 entities across 4 types, listed in `config/entities.yaml`.
+  - 13 have Docker Hub images, 19 have PyPI packages, and 3 are attention-only (MLC LLM,
+    llamafile, Higress).
+  - TGI and TorchServe (archived) and GPT4All (inactive) are kept as **controls**. Their
+    attention should decay, which sanity-checks the pipeline.
+  - Ray Serve is excluded: its repo and image cover all of Ray, so both signals would be
+    polluted.
+  - Every entity carries `adoption_proxy_notes` explaining what its numbers really measure.
+  - Bare common words ("triton", "bifrost") are deliberately not aliases.
+  - `producers/registry.py` rejects any alias or handle claimed by two entities, which keeps
+    exact-match resolution unambiguous.
+- **Alternatives:** Only entities with full coverage. Rejected because the coverage gap *is* a
+  finding, and the attention-only entities still feed attention marts.
+- **Trade-off:** Adoption comparisons are only valid where proxies exist and mean something. The
+  marts must carry the per-entity caveat. **Follow-up for the GH Archive producer:** two repos
+  were renamed (llamafile, Higress), and GH Archive records the name *at event time*. Matching
+  must use the stable GitHub repo id, not the name.
+- **Interview angle:** "I measured coverage before trusting the metric. Half the projects have
+  no usable Docker signal, and the registry says so per entity."
+
+## D011: Dates dropped; Bronze is built next, on the Docker Hub topic
+*2026-10-21. Supersedes D007's dated timeline; the vertical-slice principle stays.*
+
+- **Context:** The Oct 7 deadline has passed, and the goal is now depth of understanding rather
+  than a date. The spec's order built the GH Archive producer before Bronze.
+- **Decision:** No dates. Build order: (0) run the Docker poller live and schedule it,
+  (1) Bronze on `radar.dockerhub.snapshots.v1`, (2) GH Archive replay producer feeding the same
+  Bronze job, (3) PyPI producer, (4) Silver, (5) Gold, (6) end-to-end job + README,
+  (7) HN, SCD2, Mongo + FastAPI.
+- **Alternatives:** Keep the spec's order (GH Archive first). Rejected because 90 days of GitHub
+  events is too much to inspect by eye while learning checkpoints and crash recovery.
+- **Trade-off:** Bronze is first tested on a tiny, slow topic, so throughput behaviour only shows
+  up in step 2. That's acceptable, because correctness is what needs to be learned first.
+- **Interview angle:** "I proved the streaming mechanics on a topic small enough to verify every
+  offset by hand, then pointed the same job at a high-volume topic."
