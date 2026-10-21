@@ -1,0 +1,28 @@
+{
+  "type": "record",
+  "name": "DockerHubSnapshot",
+  "namespace": "radar.dockerhub",
+  "doc": "One daily snapshot of a Docker Hub repository's cumulative counters. Deltas are computed downstream in dbt.",
+  "fields": [
+    {
+      "name": "source_event_id",
+      "type": "string",
+      "doc": "'{image}:{snapshot_date}'. Deterministic, so a same-day re-poll is a duplicate (D004)."
+    },
+    {"name": "image", "type": "string", "doc": "namespace/name on Docker Hub."},
+    {"name": "pull_count", "type": "long", "doc": "Cumulative all-time pulls at poll time."},
+    {"name": "star_count", "type": "long"},
+    {
+      "name": "last_updated",
+      "type": ["null", {"type": "long", "logicalType": "timestamp-millis"}],
+      "default": null,
+      "doc": "When the image was last pushed, per Docker Hub."
+    },
+    {
+      "name": "snapshot_date",
+      "type": {"type": "int", "logicalType": "date"},
+      "doc": "UTC date of the poll. This is the event time."
+    },
+    {"name": "polled_at", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}
