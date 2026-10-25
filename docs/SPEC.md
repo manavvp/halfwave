@@ -46,9 +46,13 @@ Daily pollers run as a scheduled Databricks Job (D008).
 
 ## Bronze: hand-written Structured Streaming
 
-- Kafka → one Delta table per topic, storing the raw payload plus Kafka metadata.
+- Kafka → one Delta table per topic, storing the raw payload plus Kafka metadata. Raw only:
+  bronze never decodes, so every bronze table has the same schema (D012).
 - `foreachBatch` + append-only Delta writes with `txnAppId`/`txnVersion`, so a retried micro-batch
-  is a no-op (D002). Bronze keeps source duplicates; dedup happens once, in silver (D003).
+  is a no-op (D002). `txnAppId` includes the checkpoint's query id, so a checkpoint reset produces
+  duplicates, never silent loss (D013). Bronze keeps source duplicates; dedup happens once, in
+  silver (D003).
+- One parameterized notebook per topic, one checkpoint per table (D014).
 - `AvailableNow` trigger. Scheduled job for normal operation; continuous job during replay demos.
 - Checkpoints stored in a UC volume.
 - Streaming query progress (input/processed rows per sec, batch duration) is written to a metrics
@@ -56,7 +60,9 @@ Daily pollers run as a scheduled Databricks Job (D008).
 
 ## Silver: SDP
 
-- Normalize everything into the common event model.
+- Decode `value_raw` with `from_avro` + Schema Registry (bronze is raw only, D012), then normalize
+  everything into the common event model. Undecodable rows need a home (quarantine/DLQ): decide
+  in silver's design brief.
 - Entity resolution:
   - exact alias match for GitHub, PyPI and Docker Hub
   - alias match plus word-boundary and context rules for HN text

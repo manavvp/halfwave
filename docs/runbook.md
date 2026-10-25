@@ -17,9 +17,10 @@ Run by Manav on Databricks Free Edition, 2026-10-01/02. Spike notebook export pe
 
 ## Operational notes
 
-- **Resetting a bronze checkpoint requires a new `txnAppId`.** Bronze writes use
-  `txnVersion = batchId` (D002). A fresh checkpoint restarts `batchId` at 0, and Delta would skip
-  every write as already committed.
+- **Resetting a bronze checkpoint re-ingests the whole topic.** `txnAppId` includes the
+  checkpoint's query id (D013), so a new checkpoint writes everything again. That means
+  duplicates, never silently skipped batches. For a clean rebuild, drop or truncate the table
+  *and* delete the checkpoint together.
 - **Docker Hub rate-limits bursts.** Back-to-back unauthenticated requests started failing
   during setup. The poller paces 1 request/s and retries 429/5xx with exponential backoff,
   honouring `Retry-After`.
@@ -36,4 +37,12 @@ Run by Manav on Databricks Free Edition, 2026-10-01/02. Spike notebook export pe
 
 ## Drills
 
-_None yet. Drills are added as each layer lands._
+### Bronze: `drills/bronze_replay` (scratch table `dockerhub_snapshots_v1_drill`)
+
+Run in Databricks: open the notebook, Connect → Serverless → Run all. It cleans up after itself.
+
+| # | Drill | Expected | Observed |
+|---|---|---|---|
+| 1 | Crash after the batch-0 write, before the checkpoint commit; then rerun | Crashed run fails. `offsets/` = [0], `commits/` = []. Rerun succeeds, row count unchanged, `commits/` = [0], same txnAppId, one WRITE commit in `DESCRIBE HISTORY` | _pending first run_ |
+| 2 | Source duplicates (same-day re-polls) | One row per Kafka offset. Some (image, day) groups have more than one row | _pending first run_ |
+| 3 | Delete the checkpoint, keep the table; rerun | New txnAppId. Rows exactly double (duplicates, no silent loss) | _pending first run_ |

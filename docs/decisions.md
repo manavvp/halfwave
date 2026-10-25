@@ -210,3 +210,62 @@ Numbered in order; superseded entries stay and are marked, never deleted.
   up in step 2. That's acceptable, because correctness is what needs to be learned first.
 - **Interview angle:** "I proved the streaming mechanics on a topic small enough to verify every
   offset by hand, then pointed the same job at a high-volume topic."
+
+## D012: Bronze is raw only: Kafka bytes plus metadata, never decoded
+*2026-10-25. Decided by Manav.*
+
+- **Context:** Bronze's invariant is "raw payload plus Kafka metadata". The open question was
+  whether to also store a decoded copy of the Avro payload.
+- **Decision:** Every bronze table has the same columns: `kafka_topic`, `kafka_partition`,
+  `kafka_offset`, `kafka_timestamp`, `kafka_key`, `value_raw` (exact bytes, Confluent header
+  included), `schema_id` (parsed from bytes 1–4, null if unframed), `ingest_ts`, and
+  `bronze_batch_id` (the micro-batch, equal to the Delta `txnVersion`). Decoding with Schema
+  Registry moves to silver.
+- **Alternatives:** Decoded only, rejected: no re-decode path, and a single undecodable message
+  would stop the stream for good (a poison pill). Raw plus decoded, rejected because it couples
+  bronze to Schema Registry and duplicates storage, for convenience only.
+- **Trade-off:** Bronze isn't human-readable without `from_avro`, and the poison-pill decision
+  moves to silver's design. In exchange, bronze can never be blocked by a decode failure, one
+  DDL serves every topic, and bronze doesn't talk to Schema Registry at all. `bronze_batch_id`
+  lets a bad deploy be undone surgically (delete batches 120–135, replay) and joins rows to
+  `stream_progress`.
+- **Interview angle:** "Bronze is a byte-for-byte copy of the topic, so nothing downstream can
+  break ingestion, and I can always re-decode."
+
+## D013: `txnAppId` is derived from the checkpoint's query id
+*2026-10-25. Resolves the gotcha recorded in D002. Decided by Manav.*
+
+- **Context:** Delta skips a write whose `txnVersion` is ≤ the last version recorded for its
+  `txnAppId`. Batch ids restart at 0 when a checkpoint is deleted or replaced. With a fixed
+  `txnAppId`, every batch after a reset would be skipped as "already committed", new data
+  included, and the job would still report success.
+- **Decision:** `txnAppId = "<table>:<query_id>"`, where `query_id` comes from
+  `<checkpoint>/metadata`. Spark writes that file when a checkpoint is created and reuses it on
+  every restart. The `foreachBatch` function reads it on each batch. It never falls back to a
+  fixed id.
+- **Alternatives:** A fixed per-table id (the D002 design) plus a runbook warning. Rejected
+  because a warning doesn't prevent silent data loss.
+- **Trade-off:** After a checkpoint reset, bronze re-ingests everything from the earliest offset,
+  which creates duplicates. Silver's dedup on `source_event_id` absorbs them, or the table can be
+  truncated first.
+- **Interview angle:** "When the checkpoint and the sink disagree, I fail toward visible
+  duplicates, never toward invisible gaps."
+
+## D014: One bronze notebook, run once per topic, each with its own checkpoint
+*2026-10-25*
+
+- **Context:** Four topics, each needing one bronze table (an invariant).
+- **Decision:** `databricks/bronze/ingest_topic` takes `topic` as a parameter. The table is
+  `radar.bronze.<source>_<type>_v<n>` and the checkpoint is
+  `/Volumes/radar/bronze/checkpoints/<table>`.
+  - `startingOffsets=earliest` applies only on first run; after that the checkpoint decides.
+  - `failOnDataLoss=true`, so retention-deleted, unread offsets fail loudly.
+  - `maxOffsetsPerTrigger=10000` bounds each micro-batch.
+  - Trigger `AvailableNow`.
+  - Each run's `recentProgress` is appended to `radar.bronze.stream_progress`.
+- **Alternatives:** One query subscribed to every `radar.*` topic, splitting into tables inside
+  `foreachBatch`. Rejected because one shared checkpoint couples the topics: a problem in one
+  stalls all of them, and they can't be reset independently.
+- **Trade-off:** One job task per topic. With four topics, that's fine.
+- **Interview angle:** "One topic, one table, one checkpoint: failures and resets stay
+  isolated."
