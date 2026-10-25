@@ -14,14 +14,11 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
-import os
-import sys
+# MAGIC %run ../_bootstrap
 
-# A notebook's working directory is its own folder (databricks/jobs/). Put the repo root on the
-# import path explicitly instead of relying on the platform to do it.
-REPO_ROOT = os.path.abspath(os.path.join(os.getcwd(), "..", ".."))
-if REPO_ROOT not in sys.path:
-    sys.path.insert(0, REPO_ROOT)
+# COMMAND ----------
+
+import os
 
 SECRET_SCOPE = "radar"
 SETTINGS = [
