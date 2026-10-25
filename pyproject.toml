@@ -15,10 +15,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.6", "pytest>=8"]
+dev = ["ruff>=0.6", "pytest>=8", "pyspark~=4.0"]
 
 [tool.setuptools.packages.find]
-include = ["producers*"]
+include = ["producers*", "transforms*"]
 
 [tool.ruff]
 line-length = 100
@@ -30,6 +30,7 @@ select = ["E", "F", "W", "I", "UP", "B", "ANN"]
 [tool.ruff.lint.per-file-ignores]
 # Databricks notebooks get `dbutils`/`spark` injected at runtime and import after `%pip` cells.
 "databricks/**/*.py" = ["F821", "E402"]
+"drills/**/*.py" = ["F821", "E402"]
 "tests/**/*.py" = ["ANN"]
 
 [tool.pytest.ini_options]
