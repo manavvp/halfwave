@@ -40,9 +40,16 @@ Run by Manav on Databricks Free Edition, 2026-10-01/02. Spike notebook export pe
 ### Bronze: `drills/bronze_replay` (scratch table `dockerhub_snapshots_v1_drill`)
 
 Run in Databricks: open the notebook, Connect → Serverless → Run all. It cleans up after itself.
+Result on 2026-10-27: **13/13 checks passed.**
+
+A first attempt scored 11/13. The two failing checks were "run succeeds" in drills 1 and 3. Both
+runs had done their streaming work correctly, but the metrics step then raised `TypeError: Object
+of type UUID is not JSON serializable`: PySpark 4's `StreamingQueryProgress` is a `dict` subclass
+holding `uuid.UUID` values. Fixed by reading `progress.json` instead, with a regression test. The
+lesson: the unit-test fixture was a plain dict with string ids, unlike the real object.
 
 | # | Drill | Expected | Observed |
 |---|---|---|---|
-| 1 | Crash after the batch-0 write, before the checkpoint commit; then rerun | Crashed run fails. `offsets/` = [0], `commits/` = []. Rerun succeeds, row count unchanged, `commits/` = [0], same txnAppId, one WRITE commit in `DESCRIBE HISTORY` | _pending first run_ |
-| 2 | Source duplicates (same-day re-polls) | One row per Kafka offset. Some (image, day) groups have more than one row | _pending first run_ |
-| 3 | Delete the checkpoint, keep the table; rerun | New txnAppId. Rows exactly double (duplicates, no silent loss) | _pending first run_ |
+| 1 | Crash after the batch-0 write, before the checkpoint commit; then rerun | Crashed run fails. `offsets/` = [0], `commits/` = []. Rerun succeeds, row count unchanged, `commits/` = [0], same txnAppId, one WRITE commit in `DESCRIBE HISTORY` | ✅ 2026-10-27. Crash run failed. 91 rows written before the crash, `offsets/ [0]`, `commits/ []`. Rerun succeeded: 91 → 91, `commits/ [0]`, same txnAppId `dockerhub_snapshots_v1_drill:705b59cb-…` |
+| 2 | Source duplicates (same-day re-polls) | One row per Kafka offset. Some (image, day) groups have more than one row | ✅ 2026-10-27. 91 rows = 91 distinct offsets (7 polls × 13 images). Repeated (image, day) groups present |
+| 3 | Delete the checkpoint, keep the table; rerun | New txnAppId. Rows exactly double (duplicates, no silent loss) | ✅ 2026-10-27. New txnAppId. Rows 91 → 182 |
