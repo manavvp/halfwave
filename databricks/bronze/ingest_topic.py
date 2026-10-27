@@ -134,7 +134,9 @@ try:
     query.awaitTermination()
 finally:
     # Record whatever batches completed, even if the run failed.
-    progress = [p if isinstance(p, dict) else json.loads(p.json) for p in query.recentProgress]
+    # PySpark 4's StreamingQueryProgress subclasses dict but holds uuid.UUID values; its .json is
+    # Spark's own serialization, so prefer it. Plain dicts (older PySpark) have no .json.
+    progress = [json.loads(p.json) if hasattr(p, "json") else p for p in query.recentProgress]
     progress_rows = bronze.progress_to_rows(progress)
     if progress_rows:
         schema = ", ".join(f"{n} {t}" for n, t in bronze.PROGRESS_COLUMNS)

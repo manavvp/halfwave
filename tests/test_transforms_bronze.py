@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import UTC, datetime
 
 import pytest
@@ -157,6 +158,16 @@ def test_progress_rows_load_into_the_declared_schema(spark):
     schema = ", ".join(f"{n} {t}" for n, t in bronze.PROGRESS_COLUMNS)
     df = spark.createDataFrame(bronze.progress_to_rows([PROGRESS]), schema)
     assert df.count() == 1
+
+
+def test_progress_with_uuid_values_is_serialized():
+    """Regression: PySpark 4's StreamingQueryProgress is a dict holding uuid.UUID ids."""
+    query_id = uuid.UUID("8a3c41e2-0000-4000-8000-000000000042")
+    [row] = bronze.progress_to_rows([{**PROGRESS, "id": query_id, "runId": uuid.uuid4()}])
+    record = dict(zip([c for c, _ in bronze.PROGRESS_COLUMNS], row, strict=True))
+    assert record["query_id"] == str(query_id)
+    assert isinstance(record["run_id"], str)
+    assert json.loads(record["raw_progress"])["id"] == str(query_id)
 
 
 def test_run_with_no_batches_gives_no_rows():

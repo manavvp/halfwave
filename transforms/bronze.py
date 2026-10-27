@@ -124,7 +124,7 @@ def txn_app_id(table_name: str, query_id: str) -> str:
 def _offsets_json(value: object) -> str | None:
     if value is None:
         return None
-    return value if isinstance(value, str) else json.dumps(value, sort_keys=True)
+    return value if isinstance(value, str) else json.dumps(value, sort_keys=True, default=str)
 
 
 def progress_to_rows(progress: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
@@ -137,8 +137,8 @@ def progress_to_rows(progress: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
         rows.append(
             (
                 p.get("name"),
-                p.get("id"),
-                p.get("runId"),
+                _as_str(p.get("id")),  # may be uuid.UUID when read off a PySpark 4 object
+                _as_str(p.get("runId")),
                 p.get("batchId"),
                 datetime.fromisoformat(p["timestamp"]) if p.get("timestamp") else None,
                 p.get("numInputRows"),
@@ -148,10 +148,14 @@ def progress_to_rows(progress: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
                 durations.get("addBatch"),
                 _offsets_json(source.get("startOffset")),
                 _offsets_json(source.get("endOffset")),
-                json.dumps(p, sort_keys=True),
+                json.dumps(p, sort_keys=True, default=str),
             )
         )
     return rows
+
+
+def _as_str(value: object) -> str | None:
+    return None if value is None else str(value)
 
 
 def _as_float(value: object) -> float | None:
