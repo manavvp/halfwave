@@ -124,6 +124,10 @@ rows_before = spark.table(FULL_TABLE).count()
 
 query = (
     bronze_stream.writeStream.queryName(QUERY_NAME)
+    # Streaming output mode (the default, stated for clarity): each batch_df holds only the rows
+    # new since the last trigger. The query is stateless, so emitted rows never change. Not the
+    # same thing as the Delta save mode .mode("append") inside write_batch.
+    .outputMode("append")
     .foreachBatch(write_batch)
     .option("checkpointLocation", CHECKPOINT)
     .trigger(availableNow=True)
