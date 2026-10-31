@@ -1,0 +1,49 @@
+{
+  "type": "record",
+  "name": "GitHubEvent",
+  "namespace": "radar.github",
+  "doc": "One fact about a registry repo, timestamped by GitHub: a fork, release, opened or merged PR, or opened issue (D015). No stars: GitHub no longer lists stargazers to non-admins (D018).",
+  "fields": [
+    {
+      "name": "source_event_id",
+      "type": "string",
+      "doc": "'{event_type}:{repo_id}:{object_id}'. Deterministic, so a re-fetch is a duplicate (D004, D016)."
+    },
+    {
+      "name": "event_type",
+      "type": "string",
+      "doc": "fork | release | pr_opened | pr_merged | issue_opened. A string, not an enum, so adding a type never breaks old readers."
+    },
+    {"name": "repo", "type": "string", "doc": "owner/name as in the registry. Also the Kafka key."},
+    {"name": "repo_id", "type": "long", "doc": "GitHub's numeric repo id: stable across renames."},
+    {
+      "name": "event_ts",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "When it happened, per GitHub. This is the event time."
+    },
+    {
+      "name": "actor",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Login of whoever forked, published or authored. Null for deleted accounts."
+    },
+    {
+      "name": "object_id",
+      "type": ["null", "long"],
+      "default": null,
+      "doc": "GitHub id of the fork, the release, the PR or the issue."
+    },
+    {"name": "number", "type": ["null", "int"], "default": null, "doc": "PR or issue number."},
+    {
+      "name": "url",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Where the evidence lives on github.com (used by signal_evidence)."
+    },
+    {
+      "name": "fetched_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "When the producer fetched it. Not part of the identity."
+    }
+  ]
+}

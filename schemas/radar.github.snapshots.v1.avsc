@@ -1,0 +1,33 @@
+{
+  "type": "record",
+  "name": "GitHubRepoSnapshot",
+  "namespace": "radar.github",
+  "doc": "One daily snapshot of a repo's current totals. The only star signal (a daily delta); gold reconciles counted fork events against 'forks' (D018).",
+  "fields": [
+    {
+      "name": "source_event_id",
+      "type": "string",
+      "doc": "'{repo}:{snapshot_date}'. Deterministic, so a same-day re-poll is a duplicate (D004)."
+    },
+    {"name": "repo", "type": "string", "doc": "owner/name as in the registry. Also the Kafka key."},
+    {"name": "repo_id", "type": "long", "doc": "GitHub's numeric repo id: stable across renames."},
+    {"name": "stars", "type": "long", "doc": "Current stargazer count (net of unstars)."},
+    {"name": "forks", "type": "long"},
+    {"name": "watchers", "type": "long"},
+    {"name": "open_issues", "type": "long", "doc": "Open issues, excluding PRs."},
+    {"name": "open_pull_requests", "type": "long"},
+    {
+      "name": "pushed_at",
+      "type": ["null", {"type": "long", "logicalType": "timestamp-millis"}],
+      "default": null,
+      "doc": "Last push to any branch."
+    },
+    {"name": "is_archived", "type": "boolean"},
+    {
+      "name": "snapshot_date",
+      "type": {"type": "int", "logicalType": "date"},
+      "doc": "UTC date of the poll. This is the event time."
+    },
+    {"name": "polled_at", "type": {"type": "long", "logicalType": "timestamp-millis"}}
+  ]
+}
