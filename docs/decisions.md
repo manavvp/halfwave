@@ -269,3 +269,167 @@ Numbered in order; superseded entries stay and are marked, never deleted.
 - **Trade-off:** One job task per topic. With four topics, that's fine.
 - **Interview angle:** "One topic, one table, one checkpoint: failures and resets stay
   isolated."
+
+## D015: Signals come from the GitHub API, not GH Archive; GH Archive was audited and retired
+*2026-10-30. Decided by Manav. Supersedes the GH Archive rows of SPEC.md's sources, D004's
+GH Archive id, and D006's hourly-file backfill. D006's event-time ordering still holds.*
+
+- **Context:** Before building the GH Archive producer, I audited the source. I compared it with
+  OpenDigger, an independent collector that has published files in GH Archive's format since
+  2026-09-06, and checked file sizes for every hour from May to October 2026. I also counted
+  events at 15:00 UTC on every other day, plus spot checks back to 2025. All sampled 2026-10-30.
+  - **Coverage collapsed in stages.** 15:00 UTC on 2025-04-15 had 268k events and 9.9k stars. By
+    2026-10-28 that hour had 3k events, 225 stars and no pushes. OpenDigger's file for the same
+    hour has 692k events and 22.9k stars. Since 2026-09-06, GH Archive has held 0.9–37% of
+    OpenDigger's bytes per day (median about 5%). vLLM gains about 100 stars a day, and GH
+    Archive recorded about 1.
+  - **Volume hid it.** From May to August 2026, daily file sizes looked normal (500–700 MB),
+    but 85–97% of the events were pushes. Stars and PRs were at 1–5%. A volume health check
+    would have called those months healthy.
+  - **Some losses are upstream, at GitHub.** Tag `CreateEvent`s are absent from both archives
+    since October 2025. In the same month, push, create and delete events moved to a separate
+    id range (about 25 billion, against about 18 billion for everything else).
+  - **Even the complete-looking mirror has caveats.** It's run by one volunteer and had a
+    bandwidth crisis on Oct 19–24. It's about 10 GB a day, and its history starts on
+    2026-09-06. Its files are grouped by when an event was observed, not when it happened.
+    Pushes arrive with a p99 lateness of 32.5 h; stars, forks and releases arrive in under 1 h.
+  - **The per-repo events API can't be ground truth.** vLLM's last 300 events span 27 days.
+  - Public reports agree: igrigorik/gharchive.org issues #310, #320 and #323.
+- **What I considered first:** keep GH Archive and flag "recording errors", leaving flagged
+  hours out of the gold rolling windows. That fails here for three reasons:
+  1. Degradation is the normal state, not the exception. No hour sampled since about March 2026
+     had more than a few percent of the mirror's stars, so every window would be empty.
+  2. The loss is per event type. A volume-based flag misses it, as May–August 2026 shows.
+  3. You can't scale it back up. At 1% capture, 100 real stars show up as about 1, and
+     1 × 100 = 100 ± 100, because counting noise swamps the signal.
+
+  The principle survives: a collection gap is **global** (every repo dips at once), while a real
+  dip is **local**. Completeness has to be measured against a reference the collector doesn't
+  control: a second collector, the platform's own counters, or the sequence of event ids.
+- **Decision (Direction 1):**
+  - Attention and activity signals come from the **GitHub GraphQL API** with a read-only token:
+    stars, forks, releases, opened and merged PRs, and opened issues, each timestamped by
+    GitHub. Topic `radar.github.events.v1`.
+  - A **daily repo snapshot** (star, fork, watcher and open issue/PR totals), topic
+    `radar.github.snapshots.v1`. Gold reconciles counted star events against the change in
+    GitHub's star counter between snapshots. That's the completeness check against an
+    independent reference, for free.
+  - **Firehose load test, parked:** 1–3 hours of OpenDigger (about 700k events an hour),
+    downloaded once as a fixed test input. Own topic, own bronze table, short retention. It
+    never feeds silver: only `stream_progress` and the README's throughput table read it.
+    Taking a one-time download means the volunteer risk doesn't matter.
+  - The official GH Archive host is no longer used.
+- **Alternatives:**
+  - **Direction 2:** OpenDigger as the signal source, with per-hour × per-event-type health flags
+    plus snapshot reconciliation. More depth (real late data, completeness classification), but
+    it means 10 GB a day, a single-volunteer dependency on the critical path, and history only
+    from September. It's moved to phase2.md.
+  - **GitHub REST:** its stargazer listing stops at 40k, and vLLM and Ollama are past that.
+    GraphQL lists newest first.
+- **Trade-off:** We lose the "real firehose" as the signal source. The API is polled per repo, so
+  its *load* is tiny, and the load test covers scale instead. Stars that were later removed
+  disappear from the API, which reconciliation makes visible. A token becomes a required
+  secret.
+- **Interview angle:** "I audited my source before trusting it, found it captured about 1% of
+  stars, moved signals to an exact source, kept the archive only for load testing, and
+  reconcile my counts against the platform's own counter every day."
+
+## D016: GitHub producer: stateless "yesterday plus overlap" window, two topics, GitHub-id keys
+*2026-10-30. Window rule decided by Manav (Q7); topic separation agreed (Q8).*
+
+- **Context:** The producer needs to know which events to fetch on each run, and each fact needs
+  an id that's identical every time it's re-fetched (D004).
+- **Decision:**
+  - **Window:** `--days` whole UTC days ending at `--date` (default yesterday), plus
+    `--overlap-hours` (default 6) before them. It's a pure function of the arguments, so there's
+    no cursor or state file. A crash is fixed by rerunning, a missed day by `--date`, and the
+    backfill is `--days 90`. **Rule: the overlap must stay below silver's watermark delay**,
+    otherwise re-fetched events that are genuinely new land behind the watermark and are
+    silently dropped.
+  - **Paging:** each list (stargazers, forks, releases, PRs, issues) is paged newest first and
+    stops at the first page older than the window. PRs are ordered by `updatedAt`, so an old PR
+    merged inside the window is still seen.
+  - **Order:** all events for a run are sorted by `(event_ts, source_event_id)` before they're
+    produced, so the backfill is in event-time order (D006).
+  - **`source_event_id`:** `{event_type}:{repo_id}:{github_object_id}`, or for stars
+    `star:{repo_id}:{user_id}:{starred_at}` (an unstar and re-star is a new fact). The snapshot
+    uses `{repo}:{snapshot_date}`, the same as Docker Hub. `repo_id` is stable across renames,
+    which settles D010's rename follow-up.
+  - **Topics:** both have 1 partition, unlimited retention and the delete policy, keyed by
+    `repo` (the D009 reasoning). The volume is a few thousand events a day, and one partition
+    keeps the global event-time order the producer creates. Snapshots can't be re-fetched, so
+    Kafka is their history until bronze reads them.
+  - **Placement:** the daily run goes in the scheduled job (`databricks/jobs/poll_github`,
+    D008). The 90-day backfill runs locally, once, **before** the first daily run feeds silver,
+    because otherwise it arrives behind the watermark (D003).
+- **Alternatives:**
+  - **A high-water-mark cursor** (store the last time produced). Rejected: if you save it after
+    producing, a crash in between gives duplicates; if you save it before, a crash loses data.
+    Since dedup is needed either way, the cursor adds state without adding safety.
+  - **One topic for events and snapshots:** rejected because they're different shapes going
+    down two different silver paths (D005), just as Docker snapshots have their own topic.
+  - **An Avro enum for `event_type`:** rejected, because adding a symbol later breaks readers
+    that have the old schema. It's a string with documented values.
+- **Trade-off:** Every daily run re-fetches 6 hours that were already produced, so bronze holds
+  those duplicates (expected, and absorbed in silver). One partition caps consumer parallelism
+  at 1, which doesn't matter at this volume.
+- **Interview angle:** "The producer is stateless and at-least-once. The consumer is idempotent,
+  so a cursor would have added state without adding any safety."
+
+## D017: Producers apply backpressure when librdkafka's local queue is full
+*2026-10-31. Found when the first 90-day GitHub backfill crashed.*
+
+- **Context:** `produce()` only puts a message in librdkafka's local queue (100k messages by
+  default); a background thread sends it. The backfill queued about 109k events in under a
+  second, far faster than one partition could drain from a laptop to us-east-1. At message
+  100,001, `produce()` raised `BufferError: Queue full`. The exception skipped `flush()`, and the
+  client dropped all 100k queued messages on exit, so the events topic got nothing. The 25
+  snapshots had already been delivered.
+- **Decision:** `produce_records` catches `BufferError`, calls `poll(1)` to let deliveries free
+  space, and retries the same message. It logs, per topic, how many messages were delivered, the
+  time taken, messages per second, and how often it waited on a full queue. Per-message delivery
+  logs move to DEBUG.
+- **Alternatives:**
+  - **Raise `queue.buffering.max.messages`.** Rejected: it absorbs bursts but only postpones the
+    crash when the producer is continuously faster than the network, and the backfill grows with
+    every entity.
+  - **Tune `linger.ms` or the batch size.** These trade latency for throughput. Under a backlog,
+    batches fill immediately, so linger has no effect. Neither tuning prevents the crash.
+- **Trade-off:** If the broker is unreachable, the loop waits until queued messages time out
+  (`message.timeout.ms`, 5 minutes by default) and come back as delivery errors. Recovery was
+  just a rerun: the producer is stateless (D016), and silver's dedup absorbs the 25
+  re-produced snapshots.
+- **Interview angle:** "Produce isn't send. When the app is faster than the network, the
+  buffer fills, and something has to push back. Java's producer blocks, and librdkafka
+  raises, so I added the wait-and-retry myself."
+
+## D018: Stars come only from the daily snapshot; fork events are the reconciled signal
+*2026-10-31. Decided by Manav. Amends D015 (star events and star reconciliation) and D016 (the
+star `source_event_id`).*
+
+- **Context:** The first live run of the GitHub producer returned forks, PRs, issues and
+  releases, but zero stars. A probe showed why: GraphQL `stargazers` returns `totalCount: 0`
+  with no edges, and REST `/repos/{repo}/stargazers` returns 404, for vLLM and KServe alike.
+  Since mid-2026, GitHub lists a repo's stargazers only to its admins and collaborators. The
+  repo's `stargazerCount` is still public. The failure was silent: an empty list, not an error.
+- **Decision:**
+  - The producer no longer queries `stargazers`, so it can't silently return nothing again.
+    A test asserts that the connection is absent.
+  - The star signal is the **daily change in `stars`** between GitHub snapshots, computed in dbt
+    like Docker Hub pull deltas. Its history starts with the first snapshot (2026-10-31).
+  - D015's completeness check moves to forks: gold compares counted fork events per day with
+    the daily change in the snapshot's `forks` counter.
+  - Fork events (90-day history) become the event-level attention signal.
+- **Alternatives:**
+  - **Rebuild star history from OpenDigger WatchEvents** (back to 2026-09-06). It's the only
+    public source left for star timestamps, but it means scanning about 10 GB a day. Moved to
+    phase2.md.
+  - **Keep the stargazers query, guarded** (warn when `totalCount` is 0 while `stargazerCount`
+    is not). Rejected: it's code for a signal we know we can't get.
+- **Trade-off:** Stars lose their 90-day history and per-event evidence. A daily delta is a net
+  number (new stars minus unstars), so it can't be traced back to individual stargazers.
+  Attention windows that need history lean on forks, PRs and issues until the snapshots
+  accumulate.
+- **Interview angle:** "The platform closed the endpoint and returned an empty list, not an
+  error. I caught it because zero stars on vLLM was impossible. I moved stars to a counter and
+  moved reconciliation to forks."

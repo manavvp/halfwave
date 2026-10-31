@@ -22,12 +22,14 @@ score; the methodology is explicit and lives in dbt.
 
 | Source | Signal class | Cadence | History |
 |---|---|---|---|
-| GH Archive (stars, forks, releases, PRs, contributors) | attention + activity | hourly files, replayed | full |
+| GitHub GraphQL API (forks, releases, PRs, issues) + daily repo snapshot, the only star signal (D015, D018) | attention + activity | daily, plus a 90-day backfill | 90 days for events; snapshots (stars) from first poll |
 | Hacker News via Algolia API (text mentions) | attention | polled | full |
 | PyPI downloads (pypistats) | adoption | daily | ~180 days |
 | Docker Hub pull counts (cumulative snapshots) | adoption | daily | from first poll |
 
 Known limitations (state these in the README):
+- Star history starts at the first GitHub snapshot (2026-10-31): since mid-2026 GitHub lists
+  stargazers only to repo admins, so past stars can't be fetched (D018).
 - Adoption history is shorter than attention history. Docker Hub history starts 2026-10-21 (first live poll; planned for 2026-10-02).
 - Adoption coverage is partial: only 13 of 25 entities have a Docker Hub image, because the
   rest ship on GHCR, NVIDIA NGC or vendor registries, which publish no pull counts. Several PyPI
@@ -38,11 +40,17 @@ Daily pollers run as a scheduled Databricks Job (D008).
 ## Kafka
 
 - Hosted cluster. One topic per source. Avro + Schema Registry. Keys are repo, package, or entity.
-- The replay producer has two modes:
-  - **firehose**: a bounded 1–3 day window of the full GH Archive stream, at 1x / 10x / 100x / 1000x. Used for throughput experiments.
-  - **backfill**: registry repos only, over ~90 days, produced in event-time order. Hourly files
-    are streamed and filtered, never stored (~400 MB/day compressed, measured; D006). Validate on
-    1 day before running 90. Used to build the signal history.
+- GitHub (D015, D016, D018): `radar.github.events.v1` (forks, releases, PRs, issues) and
+  `radar.github.snapshots.v1` (daily totals: the star signal, and the fork counter that gold
+  reconciles fork events against). The
+  producer is stateless: each run covers yesterday plus an overlap (`--days 90` backfills, in
+  event-time order).
+- **Firehose load test** (parked, D015): 1–3 hours of OpenDigger's GH-Archive-format files
+  (about 700k events an hour), downloaded once as a fixed test input and replayed at
+  1x / 10x / 100x / 1000x into its own short-retention topic and bronze table. It never feeds
+  silver; its output is `stream_progress` and the README's throughput table.
+- GH Archive itself was audited and retired: it captured about 1% of stars by October 2026
+  (D015).
 
 ## Bronze: hand-written Structured Streaming
 
@@ -69,7 +77,7 @@ Daily pollers run as a scheduled Databricks Job (D008).
   - unresolved or ambiguous records go to a quarantine table
 - `dropDuplicatesWithinWatermark` on `(source, source_event_id)` with event-time watermarks. This is
   the only dedup in the pipeline (D003, D004).
-- Daily buckets per entity per signal for GH Archive and HN. This is the only streaming aggregation.
+- Daily buckets per entity per signal for GitHub events and HN. This is the only streaming aggregation.
   PyPI and Docker Hub rows are already daily, so they're only normalized (D005).
 - Reprocessing (e.g. after changing resolution rules) is an SDP full refresh from bronze (D006).
 - Expectations for data quality.
