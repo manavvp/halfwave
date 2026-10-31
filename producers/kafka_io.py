@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -64,31 +65,58 @@ def produce_records(
     value_serializer: AvroSerializer,
     flush_timeout_s: float = 30.0,
 ) -> list[str]:
-    """Produce records keyed by `record[key_field]`. Returns delivery errors (empty = success)."""
+    """Produce records keyed by `record[key_field]`. Returns delivery errors (empty = success).
+
+    produce() only enqueues into librdkafka's local buffer (100k messages by default); a
+    background thread sends. When the buffer is full, produce() raises BufferError instead of
+    blocking, so we wait for deliveries to free space and retry the same message (backpressure).
+    """
     key_serializer = StringSerializer("utf_8")
     errors: list[str] = []
+    delivered = 0
+    full_waits = 0
+    started = time.monotonic()
 
     def on_delivery(err: KafkaError | None, msg: Message) -> None:
+        nonlocal delivered
         if err is not None:
             errors.append(f"{msg.key()!r}: {err}")
         else:
-            log.info(
+            delivered += 1
+            log.debug(
                 "delivered key=%s partition=%s offset=%s",
                 msg.key().decode(),
                 msg.partition(),
                 msg.offset(),
             )
 
+    produced = 0
     for record in records:
-        producer.produce(
-            topic,
-            key=key_serializer(record[key_field], SerializationContext(topic, MessageField.KEY)),
-            value=value_serializer(record, SerializationContext(topic, MessageField.VALUE)),
-            on_delivery=on_delivery,
-        )
+        key = key_serializer(record[key_field], SerializationContext(topic, MessageField.KEY))
+        value = value_serializer(record, SerializationContext(topic, MessageField.VALUE))
+        while True:
+            try:
+                producer.produce(topic, key=key, value=value, on_delivery=on_delivery)
+                break
+            except BufferError:
+                # Enqueuing faster than the network drains. Not an endless loop: if the broker is
+                # unreachable, queued messages expire (message.timeout.ms) and free the space.
+                full_waits += 1
+                producer.poll(1.0)
+        produced += 1
         producer.poll(0)  # serve delivery callbacks as we go
 
     undelivered = producer.flush(flush_timeout_s)
     if undelivered:
         errors.append(f"{undelivered} message(s) still undelivered after {flush_timeout_s}s")
+    elapsed = time.monotonic() - started
+    log.info(
+        "%s: %d produced, %d delivered in %.1fs (%.0f msg/s), waited on a full queue %d times",
+        topic,
+        produced,
+        delivered,
+        elapsed,
+        delivered / elapsed if elapsed else 0.0,
+        full_waits,
+    )
     return errors
