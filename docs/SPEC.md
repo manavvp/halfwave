@@ -30,6 +30,8 @@ score; the methodology is explicit and lives in dbt.
 Known limitations (state these in the README):
 - Star history starts at the first GitHub snapshot (2026-10-31): since mid-2026 GitHub lists
   stargazers only to repo admins, so past stars can't be fetched (D018).
+- PyPI counts before 2026-08-24 include installer metadata requests (PyPI changed its counting
+  and didn't restate history), so PyPI comparisons start 2026-08-25 (D019).
 - Adoption history is shorter than attention history. Docker Hub history starts 2026-10-21 (first live poll; planned for 2026-10-02).
 - Adoption coverage is partial: only 13 of 25 entities have a Docker Hub image, because the
   rest ship on GHCR, NVIDIA NGC or vendor registries, which publish no pull counts. Several PyPI
@@ -45,6 +47,8 @@ Daily pollers run as a scheduled Databricks Job (D008).
   reconciles fork events against). The
   producer is stateless: each run covers yesterday plus an overlap (`--days 90` backfills, in
   event-time order).
+- PyPI (D019): `radar.pypi.downloads.v1`, one row per package per day. Each run re-reads the
+  last 3 days; `--days 180` backfills.
 - **Firehose load test** (parked, D015): 1–3 hours of OpenDigger's GH-Archive-format files
   (about 700k events an hour), downloaded once as a fixed test input and replayed at
   1x / 10x / 100x / 1000x into its own short-retention topic and bronze table. It never feeds

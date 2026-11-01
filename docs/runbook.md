@@ -26,6 +26,10 @@ Run by Manav on Databricks Free Edition, 2026-10-01/02. Spike notebook export pe
   honouring `Retry-After`.
 - **pypistats rate-limits hard.** On 2026-10-02 it returned 429 at 1 req/s and intermittently
   even at 1 req per 6 s. The PyPI producer needs slow pacing and backoff from the start.
+- **PyPI downloads drop sharply on 2026-08-25 for almost every package.** That's PyPI's
+  counting change (2026-08-24), not adoption. Never compare across it (D019).
+- **A PyPI package logging `0 days`** means pypistats hasn't published those days yet. The
+  3-day lookback picks them up on the next run.
 - **Kafka `SASL authentication error` while Schema Registry calls succeed means a bad cluster
   key.** Seen 2026-10-21. The SR key is separate and was fine. The `.env` values were clean, but
   the cluster rejected the key ID + secret pair. Fixed by creating a new key from inside the

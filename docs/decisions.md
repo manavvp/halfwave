@@ -433,3 +433,48 @@ star `source_event_id`).*
 - **Interview angle:** "The platform closed the endpoint and returned an empty list, not an
   error. I caught it because zero stars on vLLM was impossible. I moved stars to a counter and
   moved reconciliation to forks."
+
+## D019: PyPI producer, and PyPI's 2026-08-24 counting change is a structural break handled in gold
+*2026-10-31*
+
+- **Context:** pypistats.org's `/overall` endpoint returns every day it holds (about 180 days,
+  currently 2026-04-08 onwards) in one request per package. It rate-limits hard (429s during
+  setup, runbook), and a day appears some hours after it ends. Before building, I compared all
+  19 packages' histories. **Almost every package dropped on the same day, 2026-08-25:** litellm
+  −87%, mlx-lm −55%, vLLM −50%, tritonclient −30%, while llama-cpp-python didn't move. A step
+  that hits every package at once is a change in measurement, not adoption (the D015 principle:
+  a collection change is global, a real change is local). PyPI confirms it: on 2026-08-24 it
+  stopped counting installer metadata requests as downloads, and did not restate history
+  ([PyPI blog](https://blog.pypi.org/posts/2026-08-31-download-counts/),
+  [pypistats #113](https://github.com/psf/pypistats.org/issues/113)). How inflated the old counts
+  are varies by package, with installer mix and CI usage.
+- **Decision:**
+  - **Producer** (`producers/sources/pypi.py`), stateless like D016: one `/overall?mirrors=false`
+    request per package, kept to `--days` whole UTC days ending at `--date` (default yesterday).
+    The daily run re-reads the **last 3 days**, so a day pypistats hadn't published yet is
+    picked up on the next run. Records are sorted by `(download_date, package)` and paced 3 s
+    apart, with 429 backoff that honours `Retry-After`.
+  - `source_event_id` = `{package}:{download_date}:{category}` (D004). The category is always
+    `without_mirrors` (mirror re-downloads excluded).
+  - Topic `radar.pypi.downloads.v1`: 1 partition, unlimited retention, delete policy, keyed by
+    `package` (the D009 and D016 reasoning). The backfill (`--days 180`) runs locally once,
+    before the daily job feeds silver.
+  - **The break is handled in gold, not the producer.** The producer and bronze stay raw.
+    dbt holds `pypi_comparable_from = 2026-08-25` (the first full day under the new rule; the
+    24th is mixed) as a documented variable. No rolling window, growth rate or
+    attention-vs-adoption comparison may span it. Earlier rows stay queryable but are flagged.
+- **Alternatives:**
+  - **Rescale pre-break history** by each package's before/after ratio. Rejected: the inflation
+    differs per package, and a one-week ratio mixes the counting change with real change in that
+    week. As with D015, you can't reliably correct a measurement after the fact.
+  - **BigQuery's `file_downloads` table**, which can filter to distributions only and so gives a
+    consistent history. Rejected: not in the V1 stack (already in phase2.md).
+  - **Fetch one day per run, no lookback.** Rejected: a run made before pypistats publishes
+    yesterday would miss that day for good.
+- **Trade-off:** Comparable PyPI history starts 2026-08-25 (about 67 days at the backfill),
+  which is enough for 30-day windows. Silver's dedup keeps the first copy of a day. If
+  pypistats ever restated a day, we'd keep the old number. Not observed: the same day fetched
+  hours apart matched. The 3-day lookback must stay below silver's PyPI watermark delay.
+- **Interview angle:** "Before trusting the adoption metric, I checked it for a step that hit
+  every package at once. I found PyPI's counting change, confirmed it from their announcement,
+  and modelled it as a structural break in gold instead of 'fixing' the history."
