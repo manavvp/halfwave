@@ -1,0 +1,30 @@
+{
+  "type": "record",
+  "name": "PyPIDailyDownloads",
+  "namespace": "radar.pypi",
+  "doc": "Downloads of one PyPI package on one UTC day, from pypistats.org (mirrors excluded). Counts before 2026-08-24 also include installer metadata requests, so they aren't comparable with later days (D019).",
+  "fields": [
+    {
+      "name": "source_event_id",
+      "type": "string",
+      "doc": "'{package}:{download_date}:{category}'. Deterministic, so a re-fetch is a duplicate (D004)."
+    },
+    {"name": "package", "type": "string", "doc": "Package name on PyPI, as in the registry. Also the Kafka key."},
+    {
+      "name": "download_date",
+      "type": {"type": "int", "logicalType": "date"},
+      "doc": "The UTC day the downloads happened. This is the event time."
+    },
+    {
+      "name": "category",
+      "type": "string",
+      "doc": "pypistats breakdown, currently always 'without_mirrors'. Part of the id so other breakdowns can be added later."
+    },
+    {"name": "downloads", "type": "long", "doc": "Downloads that day."},
+    {
+      "name": "polled_at",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "When the producer fetched it. Not part of the identity."
+    }
+  ]
+}

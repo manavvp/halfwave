@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "category": "without_mirrors",
+      "date": "2026-10-26",
+      "downloads": 897027
+    },
+    {
+      "category": "without_mirrors",
+      "date": "2026-10-27",
+      "downloads": 889599
+    },
+    {
+      "category": "without_mirrors",
+      "date": "2026-10-28",
+      "downloads": 910837
+    },
+    {
+      "category": "without_mirrors",
+      "date": "2026-10-29",
+      "downloads": 849690
+    },
+    {
+      "category": "without_mirrors",
+      "date": "2026-10-30",
+      "downloads": 816903
+    }
+  ],
+  "package": "ctranslate2",
+  "type": "overall_downloads"
+}
