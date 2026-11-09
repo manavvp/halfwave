@@ -478,3 +478,123 @@ star `source_event_id`).*
 - **Interview angle:** "Before trusting the adoption metric, I checked it for a step that hit
   every package at once. I found PyPI's counting change, confirmed it from their announcement,
   and modelled it as a structural break in gold instead of 'fixing' the history."
+
+## D020: Silver watermarks are per source, sized from each producer's re-read window
+*2026-11-09. Delays agreed by Manav.*
+
+- **Context:** Our producers poll after the fact and send each run in event-time order, so the
+  only out-of-order data is the window each producer re-reads: 6 h of overlap for GitHub events
+  (D016), 2 days for PyPI's 3-day lookback (D019), and none for snapshots (one per day, dated by
+  the poll). The topics confirm it run by run.
+- **Decision:** One silver flow per bronze table, each with its own watermark: **GitHub events
+  12 h, PyPI 3 days, GitHub and Docker Hub snapshots 1 day**. The rule: each delay must exceed
+  its producer's re-read window. `github_events_daily` uses the same 12 h.
+- **Alternatives:**
+  - **One watermark over a union of all sources.** Spark takes the minimum across inputs, so the
+    slowest source would hold back every other source's state and output.
+  - **Longer delays "to be safe".** They buy nothing, because nothing arrives later than the
+    re-read window. They only hold more dedup state and close days later.
+- **Trade-off:** Rows behind the watermark are dropped silently. Here they can only be
+  re-fetched duplicates; deliberately reloading old data is a full refresh, not a late arrival
+  (D006). For GitHub, any delay under 24 h gives the same daily timing: each run's newest event
+  is about midnight, so yesterday closes on the next run whatever the delay.
+- **Interview angle:** "The lateness in this pipeline comes from my own producers' re-read
+  windows, so I sized each watermark from those, per source, plus a margin."
+
+## D021: Undecodable and unresolved rows go to one quarantine table; silver never blocks
+*2026-11-09. Decided by Manav (one table, don't fail); reasoning amended.*
+
+- **Context:** D012 moved the poison-pill question to silver. The spike (2026-11-09) showed
+  that `from_avro` in PERMISSIVE mode doesn't return null for a bad message. It returns a struct
+  whose fields are all null, for truncated bytes, an unknown schema id and unframed bytes alike.
+- **Decision:**
+  - Decode with `mode = PERMISSIVE`. A row failed to decode exactly when `rec.source_event_id`,
+    which is required in every schema, is null.
+  - One table, `radar.silver.quarantine`, with `source`, `reason` (`decode_failed` or
+    `unresolved_entity`), `bronze_ref`, `payload` (base64 raw bytes or the decoded record as
+    JSON) and `quarantined_at`. It isn't deduplicated.
+  - The alarm is quarantine volume, checked by a dbt test in gold.
+- **Alternatives:**
+  - **FAILFAST, failing the pipeline.** It's loud, but one bad message stops every table
+    downstream.
+  - **One quarantine table per source.** It gives typed columns, but there are more tables to
+    watch, and a filter on `source` gives the same view.
+- **Trade-off:** Decode failures are usually systematic (a bad deploy or an unregistered schema
+  breaks every message after some point), so the real risk is silence. Hence the volume alarm.
+  Nothing is lost, because bronze keeps the bytes and a full refresh after the fix re-decodes
+  them.
+- **Interview angle:** "Don't block, but make it loud. The bytes are safe in bronze, so a bad
+  message costs an alert and a replay, not an outage."
+
+## D022: The registry is loaded into `radar.silver.entity_registry` by a job task
+*2026-11-09. Decided by Manav (a physical table, loaded by a task). Amends the CLAUDE.md
+invariant "resolve entities against `dim_entity`".*
+
+- **Context:** Silver resolves each row's handle (repo, package, image) to an `entity_id` with a
+  stream-static join, so the registry has to be a table. `dim_entity` is a gold (dbt) model that
+  runs after silver, so silver can't join against it.
+- **Decision:**
+  - A job task, `databricks/jobs/load_registry`, loads `config/entities.yaml` into
+    `radar.silver.entity_registry` before the pipeline runs. It writes only when the registry
+    changed, so each Delta version of the table is a real registry change.
+  - Silver matches exactly on the handle, ignoring case. The registry already rejects any handle
+    claimed by two entities (D010).
+  - Gold's `dim_entity` will be built from this table. The YAML stays the source of truth.
+- **Alternatives:**
+  - **A materialized view inside the pipeline that reads the YAML.** It's just as physical, but
+    it ties the registry's refresh to the pipeline's.
+  - **Stamping `entity_id` in the producers.** Rejected: deciding which entity a handle belongs
+    to is interpretation, and interpretation stays out of the raw log. A registry change would
+    then mean re-producing Kafka instead of re-running silver.
+- **Trade-off:** A stream-static join reads the registry's current version for every
+  micro-batch, so a registry change applies to new rows only. Old rows need a full refresh
+  (D006). It also adds one job task.
+- **Interview angle:** "Identity resolution is interpretation, so it sits downstream of the
+  immutable log, against a versioned table loaded from config."
+
+## D023: GitHub daily totals are a streaming aggregation, and a closed day never changes
+*2026-11-09. Decided by Manav (option A).*
+
+- **Context:** D005 keeps one streaming aggregation, daily buckets for GitHub events (and later
+  HN). In append mode, a day's row is written once, when the watermark passes the end of that
+  day.
+- **Decision:** `github_events_daily` (entity_id, day, event_type, signal_class, event_count)
+  aggregates `events` with a 12 h watermark in append mode. A local test confirmed that a day
+  closes within the same `AvailableNow` run: Spark runs one extra batch without data to emit it.
+  On any morning, the newest closed day is the day before yesterday.
+- **Alternatives:** **Option B:** a dedup-only streaming table, plus a materialized view that
+  recounts every run. It's current, but counts can change after they first appear, and "the
+  watermark decides when a day is final" disappears.
+- **Trade-off:** Daily totals arrive one run later than they could. An event behind the
+  watermark never changes a closed day (silver drill 2).
+- **Interview angle:** "The watermark is the point where I promise a number is final. After it,
+  late data is dropped, not merged in."
+
+## D024: Silver event model details: one row per metric, readable ids, signal classes
+*2026-11-09. Signal classes agreed by Manav.*
+
+- **Context:** The common event model has one `value` per row, but snapshots carry several
+  counters, and `signal_evidence` has to trace every row by eye.
+- **Decision:**
+  - **Snapshots explode to one row per metric:** GitHub `stars_total` and `forks_total`, Docker
+    Hub `pulls_total`. The value is the running total, and dbt computes daily changes. Watchers,
+    open issues and Docker stars stay in bronze until something needs them.
+  - **`event_id`** is `source:source_event_id` for events, and
+    `source:source_event_id:event_type` for metric rows, for example
+    `github:fork:599547518:12345`. `source_event_id` is kept as a column too (an addition to the
+    CLAUDE.md model).
+  - **`value`** is a BIGINT: 1 for an event, the running total for a snapshot metric, and the
+    day's downloads for PyPI.
+  - **`event_ts`** for date-only records is that day's UTC midnight.
+  - **`signal_class`:** fork, stars and forks totals are attention; release, PRs and issues
+    are activity; PyPI downloads and Docker pulls are adoption.
+  - **`source_url`** is the GitHub object's URL for events, and the repo, package or image page
+    for snapshots.
+- **Alternatives:**
+  - **Wide per-source silver tables.** They push the union of four shapes into dbt, which is the
+    job the common model exists to do.
+  - **A hashed `event_id`.** It's shorter, but you can't read it.
+- **Trade-off:** Adding a metric later means a full refresh. Issues opened partly measure usage,
+  and release counts are inflated by CI. Both caveats belong in the gold model docs.
+- **Interview angle:** "One shape for every source, and an id you can read back to the source,
+  so any gold number can be traced by hand."

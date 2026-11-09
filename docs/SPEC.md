@@ -73,16 +73,18 @@ Daily pollers run as a scheduled Databricks Job (D008).
 ## Silver: SDP
 
 - Decode `value_raw` with `from_avro` + Schema Registry (bronze is raw only, D012), then normalize
-  everything into the common event model. Undecodable rows need a home (quarantine/DLQ): decide
-  in silver's design brief.
-- Entity resolution:
-  - exact alias match for GitHub, PyPI and Docker Hub
+  everything into the common event model. Undecodable and unresolved rows go to one quarantine
+  table, and the pipeline never blocks (D021).
+- Entity resolution, against `radar.silver.entity_registry`, which a job task loads from the YAML (D022):
+  - exact handle match (case-insensitive) for GitHub, PyPI and Docker Hub
   - alias match plus word-boundary and context rules for HN text
   - unresolved or ambiguous records go to a quarantine table
-- `dropDuplicatesWithinWatermark` on `(source, source_event_id)` with event-time watermarks. This is
-  the only dedup in the pipeline (D003, D004).
+- `dropDuplicatesWithinWatermark` on `(source, source_event_id)` with event-time watermarks, per
+  source: GitHub events 12 h, PyPI 3 days, snapshots 1 day (D020). This is the only dedup in the
+  pipeline (D003, D004).
 - Daily buckets per entity per signal for GitHub events and HN. This is the only streaming aggregation.
-  PyPI and Docker Hub rows are already daily, so they're only normalized (D005).
+  PyPI and Docker Hub rows are already daily, so they're only normalized (D005). A day is written
+  once, when the watermark passes its end (D023). Snapshots become one row per metric (D024).
 - Reprocessing (e.g. after changing resolution rules) is an SDP full refresh from bronze (D006).
 - Expectations for data quality.
 

@@ -25,3 +25,6 @@ data/
 .idea/
 .vscode/
 CLAUDE.md
+
+# Personal revision notes (local only)
+docs/revision-log.md
