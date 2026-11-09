@@ -1,0 +1,20 @@
+{
+  "name": "radar-silver",
+  "serverless": true,
+  "catalog": "radar",
+  "schema": "silver",
+  "development": false,
+  "continuous": false,
+  "channel": "CURRENT",
+  "root_path": "/Workspace/Users/manav.specticoid@gmail.com/halfwave/halfwave",
+  "libraries": [
+    {
+      "file": {
+        "path": "/Workspace/Users/manav.specticoid@gmail.com/halfwave/halfwave/databricks/silver/pipeline.py"
+      }
+    }
+  ],
+  "configuration": {
+    "radar.registry_table": "radar.silver.entity_registry"
+  }
+}

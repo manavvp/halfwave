@@ -1,4 +1,5 @@
 import os
+import time
 
 import pytest
 
@@ -12,6 +13,10 @@ def spark():
     """
     pyspark_sql = pytest.importorskip("pyspark.sql")
     os.environ.setdefault("PYSPARK_PYTHON", os.sys.executable)
+    # collect() turns timestamps into naive datetimes in the *process* time zone, so pin it to UTC
+    # to make results the same on every machine (the session time zone below covers Spark itself).
+    os.environ["TZ"] = "UTC"
+    time.tzset()
     try:
         session = (
             pyspark_sql.SparkSession.builder.master("local[1]")
