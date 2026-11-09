@@ -215,6 +215,24 @@ def test_paging_stops_once_items_are_older_than_since():
     assert [r["variables"]["after"] for r in session.requests] == [None, "p2"]
 
 
+def test_release_paging_reaches_an_old_draft_published_in_the_window():
+    """Releases sort by creation, but the event time is publication (RELEASE_DRAFT_SLACK)."""
+    new = {"databaseId": 1, "url": "u1", "createdAt": "2026-10-29T08:00:00Z",
+           "publishedAt": "2026-10-29T08:00:00Z"}
+    old_draft = {"databaseId": 2, "url": "u2", "createdAt": "2026-10-10T08:00:00Z",
+                 "publishedAt": "2026-10-29T12:00:00Z"}
+    ancient = {"databaseId": 3, "url": "u3", "createdAt": "2026-08-01T08:00:00Z",
+               "publishedAt": "2026-08-01T08:00:00Z"}
+    session = FakeSession(
+        page("releases", [new], has_next=True, cursor="p2"),
+        page("releases", [old_draft], has_next=True, cursor="p3"),  # older than the window
+        page("releases", [ancient], has_next=True, cursor="p4"),  # older than window - slack
+    )
+    items = github.fetch_connection(session, REPO, "releases", WINDOW.since)
+    assert len(session.requests) == 3  # never asked for p4
+    assert [e["object_id"] for e in events("releases", items)] == [1, 2]
+
+
 def test_paging_stops_at_the_last_page():
     session = FakeSession(page("forks", [], has_next=False))
     assert github.fetch_connection(session, REPO, "forks", WINDOW.since) == []

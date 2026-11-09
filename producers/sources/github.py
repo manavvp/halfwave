@@ -168,18 +168,28 @@ class Connection:
     selection: str  # the GraphQL field, with first/after/orderBy
     items_key: str  # "edges" or "nodes"
     order_field: str  # timestamp the list is sorted by (descending): pagination stops on it
+    # Keep paging this far past the window, for lists whose sort key isn't the event time.
+    stop_slack: timedelta = timedelta(0)
 
     @property
     def query(self) -> str:
         return _QUERY % self.selection
 
 
-def _conn(field: str, order: str, items: str, order_field: str) -> Connection:
+def _conn(
+    field: str, order: str, items: str, order_field: str, stop_slack: timedelta = timedelta(0)
+) -> Connection:
     selection = (
         f"{field}(first: 100, after: $after, orderBy: {{field: {order}, direction: DESC}}) "
         f"{{ {_PAGE_INFO} {items} }}"
     )
-    return Connection(selection, items.split(" ", 1)[0], order_field)
+    return Connection(selection, items.split(" ", 1)[0], order_field, stop_slack)
+
+
+# Releases can only be sorted by creation, but the event time is publication. A draft created
+# weeks earlier and published inside the window sits on a page older than the window, so release
+# paging runs this much further back. Drafts older than this when published are still missed.
+RELEASE_DRAFT_SLACK = timedelta(days=30)
 
 
 CONNECTIONS: dict[str, Connection] = {
@@ -191,6 +201,7 @@ CONNECTIONS: dict[str, Connection] = {
         "CREATED_AT",
         "nodes { databaseId url createdAt publishedAt author { login } }",
         "createdAt",
+        RELEASE_DRAFT_SLACK,
     ),
     # Ordered by last update, so a PR opened long ago but merged inside the window is still seen.
     "pullRequests": _conn(
@@ -221,9 +232,11 @@ query($owner: String!, $name: String!) {
 def fetch_connection(
     session: requests.Session, repo: str, name: str, since: datetime, *, sleep: Sleep = time.sleep
 ) -> list[dict[str, Any]]:
-    """Page newest-first through one connection until items are older than `since`."""
+    """Page newest-first through one connection until items are older than `since` (minus the
+    connection's slack)."""
     owner, repo_name = repo.split("/")
     conn = CONNECTIONS[name]
+    stop_before = since - conn.stop_slack
     items: list[dict[str, Any]] = []
     after = None
     while True:
@@ -234,7 +247,7 @@ def fetch_connection(
         batch = page[conn.items_key]
         items.extend(batch)
         oldest = parse_ts(batch[-1][conn.order_field]) if batch else None
-        if not page["pageInfo"]["hasNextPage"] or oldest is None or oldest < since:
+        if not page["pageInfo"]["hasNextPage"] or oldest is None or oldest < stop_before:
             return items
         after = page["pageInfo"]["endCursor"]
 
