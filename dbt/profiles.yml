@@ -1,0 +1,21 @@
+# No secrets here. dbt reuses your Databricks CLI login: the token is a short-lived OAuth token
+# from `databricks auth token`, exported for one command (see CLAUDE.md, Commands).
+halfwave:
+  target: dev
+  outputs:
+    dev:
+      type: databricks
+      catalog: radar
+      schema: gold_dev
+      host: "{{ env_var('DBT_DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DBT_DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DBT_DATABRICKS_TOKEN') }}"
+      threads: 4
+    prod:
+      type: databricks
+      catalog: radar
+      schema: gold
+      host: "{{ env_var('DBT_DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DBT_DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DBT_DATABRICKS_TOKEN') }}"
+      threads: 4

@@ -598,3 +598,40 @@ invariant "resolve entities against `dim_entity`".*
   and release counts are inflated by CI. Both caveats belong in the gold model docs.
 - **Interview angle:** "One shape for every source, and an id you can read back to the source,
   so any gold number can be traced by hand."
+
+## D025: Gold runs on dbt Core v1 with `dbt-databricks`; staging views, mart tables, dev and prod targets
+*2026-11-25*
+
+- **Context:** Gold is the dbt layer. When we installed it, dbt Labs had made **dbt v2** (a Rust
+  rewrite shipped as one binary, under its own licence, with an Apache-licensed `dbt-oss` build)
+  the default for new installs. dbt Core v1 is still supported. dbt also needs a way to log in to
+  the SQL warehouse.
+- **Decision:**
+  - **dbt Core v1** (`dbt-core` 1.12, `dbt-databricks` 1.13), installed with pip as the `dbt`
+    extra. It's the stack as written, and the Databricks job's dbt task installs it the same
+    way. Code is written v2-clean (`--select`, configs under `config:`, `arguments:` for test
+    inputs), so moving to v2 later is cheap.
+  - **Auth reuses the Databricks CLI login.** `profiles.yml` reads a short-lived OAuth token
+    from `databricks auth token`. No personal access token is created or stored.
+  - **Targets:** `dev` builds into `radar.gold_dev` (the default), `prod` into `radar.gold`.
+  - **Materializations:** staging models are views (1:1 with silver, no storage). Marts are
+    tables rebuilt in full on every run. About 130k silver rows rebuild in seconds.
+    **Switch a mart to incremental when its full rebuild becomes noticeable in the daily run**,
+    not before: incremental adds merge logic and the risk of missing a late row.
+  - **Freshness per producer:** `events` is declared once per producer with a `filter`, so a
+    stalled source can't hide behind the others. Warn after 26 h, error after 50 h.
+  - **No `dbt_utils`** (scope guard). Composite keys are tested with `unique` on a
+    `concat_ws('|', ...)` expression.
+- **Alternatives:**
+  - **dbt v2.** It's faster and the future default, but it's a different binary and licence, so
+    it's a stack change we'd decide on separately.
+  - **Incremental marts from day one.** They're the right tool when rebuilds hurt. Here they'd
+    be complexity with nothing to gain.
+  - **A personal access token in `.env`.** Rejected: one more long-lived secret, when the CLI
+    already holds a login.
+- **Trade-off:** The CLI token lasts about an hour, so a long local session re-exports it.
+  Freshness only checks the newest row, so it catches a source that has *stopped*, not a gap in
+  the past (Nov 7, Nov 18–19). Historical gaps are a separate check.
+- **Interview angle:** "Rebuild in full until the rebuild hurts. Incremental is an optimisation
+  with a correctness cost, so I wrote down the condition for switching rather than paying it
+  up front."

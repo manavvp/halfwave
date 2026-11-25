@@ -1,0 +1,21 @@
+name: halfwave
+version: "0.1.0"
+config-version: 2
+profile: halfwave
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+
+vars:
+  # PyPI stopped counting installer metadata requests on 2026-08-24 and didn't restate history.
+  # The 25th is the first full day under the new rule. No window or growth rate may span it (D019).
+  pypi_comparable_from: "2026-08-25"
+
+models:
+  halfwave:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

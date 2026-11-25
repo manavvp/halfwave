@@ -60,6 +60,15 @@ Run by Manav on Databricks Free Edition, 2026-10-01/02. Spike notebook export pe
   checkpoint reset still can't rebuild GitHub or PyPI history before those offsets from Kafka.
   For that history, Bronze is the only copy.
 
+- **The inactivity stop happened again: no runs on 2026-11-18 or 11-19.** Runs fired Nov 13–17,
+  stopped, and resumed Nov 20 after a login. Lost for good: GitHub and Docker Hub snapshots
+  dated Nov 18 and 19. GitHub events from Nov 17 00:00 to Nov 18 18:00 are missing from silver
+  (the Nov 20 run's 6 h overlap reached back only to Nov 18 18:00): forks show 0 on Nov 17 and
+  49 on Nov 18, against about 240 on a normal day. They can be re-fetched, but silver's
+  watermark has passed them, so recovery is a producer run plus a silver full refresh. PyPI was
+  complete (the 3-day lookback covered it). Freshness checks all passed on Nov 25, because they
+  only look at the newest row.
+
 ## Drills
 
 ### Bronze: `drills/bronze_replay` (scratch table `dockerhub_snapshots_v1_drill`)

@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["ruff>=0.6", "pytest>=8", "pyspark~=4.0"]
+dbt = ["dbt-databricks~=1.13"]
 
 [tool.setuptools.packages.find]
 include = ["producers*", "transforms*"]

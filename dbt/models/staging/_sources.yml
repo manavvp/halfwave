@@ -1,0 +1,55 @@
+version: 2
+
+# Silver, as written by the radar-silver pipeline. `events` is declared once for lineage and
+# once per producer with a filter, so freshness is checked per producer: one stalled source
+# can't hide behind the others. Freshness is the check for a run that never happened.
+sources:
+  - name: silver
+    database: radar
+    schema: silver
+    tables:
+      - name: events
+        description: One row per fact, every source (D024).
+      - name: github_events_daily
+        description: Daily GitHub event counts, written once per closed day (D023).
+      - name: quarantine
+        description: Undecodable and unresolved rows (D021).
+      - name: entity_registry
+        description: config/entities.yaml, loaded by the load_registry job task (D022).
+
+      - name: events_github
+        identifier: events
+        description: Freshness of the GitHub events producer.
+        config:
+          loaded_at_field: ingest_ts
+          freshness:
+            warn_after: {count: 26, period: hour}
+            error_after: {count: 50, period: hour}
+            filter: "source = 'github' and event_type not in ('stars_total', 'forks_total')"
+      - name: events_github_snapshots
+        identifier: events
+        description: Freshness of the GitHub snapshot poll.
+        config:
+          loaded_at_field: ingest_ts
+          freshness:
+            warn_after: {count: 26, period: hour}
+            error_after: {count: 50, period: hour}
+            filter: "source = 'github' and event_type in ('stars_total', 'forks_total')"
+      - name: events_pypi
+        identifier: events
+        description: Freshness of the PyPI producer.
+        config:
+          loaded_at_field: ingest_ts
+          freshness:
+            warn_after: {count: 26, period: hour}
+            error_after: {count: 50, period: hour}
+            filter: "source = 'pypi'"
+      - name: events_dockerhub
+        identifier: events
+        description: Freshness of the Docker Hub poll.
+        config:
+          loaded_at_field: ingest_ts
+          freshness:
+            warn_after: {count: 26, period: hour}
+            error_after: {count: 50, period: hour}
+            filter: "source = 'dockerhub'"

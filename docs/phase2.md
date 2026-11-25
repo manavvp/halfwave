@@ -16,3 +16,10 @@ Not in V1. Ideas land here by default instead of expanding scope.
 - **HN via the Firebase `updates` feed** instead of polling Algolia: items change (points,
   comments), so it's an upsert/CDC story rather than append-only.
 - **Conda download stats** (weekly batch files) for more adoption coverage.
+- **Website on top of the API** (draft, not final). Landing page: a one-line headline insight
+  generated from the labels, then a sortable leaderboard (attention 14d, adoption 14d,
+  sparklines, label chip), filterable by entity type. Project page: attention vs adoption as
+  indexed growth on one chart, `adoption_proxy_notes` as a caveat box, data-quality notes (gaps,
+  the PyPI break). "Why?": click a spike to list the evidence (`signal_evidence`, linking to
+  GitHub). Plus a methodology page, a compare view (2–3 projects overlaid) and a weekly digest
+  of label changes. The gold marts and the Mongo document already map to these screens.

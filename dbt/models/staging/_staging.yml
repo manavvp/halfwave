@@ -1,0 +1,58 @@
+version: 2
+
+models:
+  - name: stg_events
+    description: Silver events, 1:1, with bronze_ref flattened and an event_date.
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: entity_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_entity_registry')
+                field: entity_id
+      - name: source
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [github, pypi, dockerhub]
+      - name: signal_class
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [attention, activity, adoption]
+      - name: event_ts
+        data_tests: [not_null]
+      - name: value
+        data_tests: [not_null]
+
+  - name: stg_github_events_daily
+    description: Silver daily GitHub counts, 1:1. Grain is event_date x entity x event_type.
+    data_tests:
+      - unique:
+          arguments:
+            column_name: "concat_ws('|', entity_id, cast(event_date as string), event_type)"
+    columns:
+      - name: event_date
+        data_tests: [not_null]
+      - name: entity_id
+        data_tests: [not_null]
+      - name: event_count
+        data_tests: [not_null]
+
+  - name: stg_quarantine
+    description: Silver quarantine, 1:1. Not deduplicated (D021), so it has no unique key.
+    columns:
+      - name: reason
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [decode_failed, unresolved_entity]
+
+  - name: stg_entity_registry
+    description: The entity registry, 1:1.
+    columns:
+      - name: entity_id
+        data_tests: [unique, not_null]
