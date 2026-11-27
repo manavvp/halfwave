@@ -19,3 +19,11 @@ halfwave:
       http_path: "{{ env_var('DBT_DATABRICKS_HTTP_PATH') }}"
       token: "{{ env_var('DBT_DATABRICKS_TOKEN') }}"
       threads: 4
+    drill:
+      type: databricks
+      catalog: radar
+      schema: gold_drill
+      host: "{{ env_var('DBT_DATABRICKS_HOST') }}"
+      http_path: "{{ env_var('DBT_DATABRICKS_HTTP_PATH') }}"
+      token: "{{ env_var('DBT_DATABRICKS_TOKEN') }}"
+      threads: 4

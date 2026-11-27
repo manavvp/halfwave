@@ -1,0 +1,63 @@
+version: 2
+
+unit_tests:
+  - name: snapshot_delta_needs_consecutive_polls
+    description: >
+      Polls on Nov 5, 6 and 8 (Nov 7 missed). Only Nov 5 gets a delta: the change from the
+      Nov 5 poll to the Nov 6 poll. Nov 6 and 7 get nothing, because the change from Nov 6 to
+      Nov 8 isn't split or guessed (D026). PyPI rows pass through unchanged.
+    model: fct_entity_signal_daily
+    given:
+      - input: ref('dim_signal')
+        rows:
+          - {signal: stars_net, source: github, silver_event_type: stars_total, signal_class: attention, kind: delta, comparable_from: "2026-10-30"}
+          - {signal: pypi_downloads, source: pypi, silver_event_type: downloads, signal_class: adoption, kind: daily_total, comparable_from: "2026-08-25"}
+      - input: ref('stg_github_events_daily')
+        format: sql
+        rows: |
+          select cast(null as date) as event_date, cast(null as string) as entity_id,
+                 cast(null as string) as event_type, cast(null as string) as signal_class,
+                 cast(null as bigint) as event_count
+          where false
+      - input: ref('stg_events')
+        rows:
+          - {entity_id: vllm, source: github, event_type: stars_total, event_date: "2026-11-05", value: 100}
+          - {entity_id: vllm, source: github, event_type: stars_total, event_date: "2026-11-06", value: 110}
+          - {entity_id: vllm, source: github, event_type: stars_total, event_date: "2026-11-08", value: 130}
+          - {entity_id: vllm, source: pypi, event_type: downloads, event_date: "2026-08-24", value: 900}
+          - {entity_id: vllm, source: pypi, event_type: downloads, event_date: "2026-11-06", value: 500}
+    expect:
+      rows:
+        - {signal_key: "vllm|2026-11-05|stars_net", signal_date: "2026-11-05", signal: stars_net, value: 10, is_comparable: true}
+        - {signal_key: "vllm|2026-08-24|pypi_downloads", signal_date: "2026-08-24", signal: pypi_downloads, value: 900, is_comparable: false}
+        - {signal_key: "vllm|2026-11-06|pypi_downloads", signal_date: "2026-11-06", signal: pypi_downloads, value: 500, is_comparable: true}
+
+  - name: labels_follow_the_documented_rule
+    description: >
+      Day D = Nov 20, prior window ends Nov 6. a: forks +30%, PyPI flat -> attention without
+      adoption. b: only 5 forks in the prior window -> insufficient (low attention volume).
+      c: both +50% -> both rising. Rows on Nov 6 have no prior window -> low coverage.
+    model: entity_attention_vs_adoption
+    given:
+      - input: ref('entity_signal_rolling')
+        rows:
+          - {entity_id: a, signal: fork, signal_date: "2026-11-20", avg_14d: 13.0, sum_14d: 182, low_coverage_14d: false}
+          - {entity_id: a, signal: fork, signal_date: "2026-11-06", avg_14d: 10.0, sum_14d: 140, low_coverage_14d: false}
+          - {entity_id: a, signal: pypi_downloads, signal_date: "2026-11-20", avg_14d: 1010.0, sum_14d: 14140, low_coverage_14d: false}
+          - {entity_id: a, signal: pypi_downloads, signal_date: "2026-11-06", avg_14d: 1000.0, sum_14d: 14000, low_coverage_14d: false}
+          - {entity_id: b, signal: fork, signal_date: "2026-11-20", avg_14d: 1.0, sum_14d: 14, low_coverage_14d: false}
+          - {entity_id: b, signal: fork, signal_date: "2026-11-06", avg_14d: 0.36, sum_14d: 5, low_coverage_14d: false}
+          - {entity_id: b, signal: docker_pulls, signal_date: "2026-11-20", avg_14d: 900.0, sum_14d: 12600, low_coverage_14d: false}
+          - {entity_id: b, signal: docker_pulls, signal_date: "2026-11-06", avg_14d: 600.0, sum_14d: 8400, low_coverage_14d: false}
+          - {entity_id: c, signal: fork, signal_date: "2026-11-20", avg_14d: 30.0, sum_14d: 420, low_coverage_14d: false}
+          - {entity_id: c, signal: fork, signal_date: "2026-11-06", avg_14d: 20.0, sum_14d: 280, low_coverage_14d: false}
+          - {entity_id: c, signal: docker_pulls, signal_date: "2026-11-20", avg_14d: 300.0, sum_14d: 4200, low_coverage_14d: false}
+          - {entity_id: c, signal: docker_pulls, signal_date: "2026-11-06", avg_14d: 200.0, sum_14d: 2800, low_coverage_14d: false}
+    expect:
+      rows:
+        - {entity_id: a, signal_date: "2026-11-20", adoption_signal: pypi_downloads, label: attention_without_adoption, insufficient_reason: null}
+        - {entity_id: b, signal_date: "2026-11-20", adoption_signal: docker_pulls, label: insufficient_data, insufficient_reason: low_attention_volume}
+        - {entity_id: c, signal_date: "2026-11-20", adoption_signal: docker_pulls, label: both_rising, insufficient_reason: null}
+        - {entity_id: a, signal_date: "2026-11-06", adoption_signal: pypi_downloads, label: insufficient_data, insufficient_reason: low_coverage}
+        - {entity_id: b, signal_date: "2026-11-06", adoption_signal: docker_pulls, label: insufficient_data, insufficient_reason: low_coverage}
+        - {entity_id: c, signal_date: "2026-11-06", adoption_signal: docker_pulls, label: insufficient_data, insufficient_reason: low_coverage}

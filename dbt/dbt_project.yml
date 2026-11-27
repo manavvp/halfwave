@@ -13,6 +13,28 @@ vars:
   # The 25th is the first full day under the new rule. No window or growth rate may span it (D019).
   pypi_comparable_from: "2026-08-25"
 
+  # Rolling windows (D026): a window is low_coverage when fewer than this share of its days have
+  # data (7d: under 5 days, 14d: under 10, 30d: under 21).
+  min_window_coverage: 0.7
+
+  # Attention vs adoption labels (D027). Growth = average per day with data over the last 14
+  # days vs the 14 days before. Documented in models/marts/_marts.yml.
+  rising_above: 0.20
+  falling_below: -0.20
+  flat_within: 0.05
+  min_prior_forks_14d: 10
+  min_prior_adoption_per_day: 50
+
+  # Snapshot days that were never polled (runbook). Lost for good; the gap test skips them and
+  # flags any new one.
+  known_snapshot_gaps:
+    github: ["2026-11-07", "2026-11-18", "2026-11-19"]
+    dockerhub: ["2026-10-22", "2026-11-07", "2026-11-18", "2026-11-19"]
+
+  # Quarantine alarm (D021): any decode failure is an error; unresolved rows warn above this
+  # many in the last 2 days.
+  max_unresolved_2d: 100
+
 models:
   halfwave:
     staging:

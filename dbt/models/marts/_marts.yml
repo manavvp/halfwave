@@ -1,0 +1,141 @@
+version: 2
+
+models:
+  - name: dim_entity
+    description: One row per tracked project, from the registry (D022).
+    columns:
+      - name: entity_id
+        data_tests: [unique, not_null]
+
+  - name: dim_source
+    description: One row per source system, with its caveat.
+    columns:
+      - name: source
+        data_tests: [unique, not_null]
+
+  - name: dim_signal
+    description: >
+      The signals gold publishes and how each is derived (D026). kind is count (events per
+      day), delta (change between consecutive daily snapshots, dated to the earlier poll's day)
+      or daily_total (already daily). comparable_from is the first day the signal means what
+      it means today.
+    columns:
+      - name: signal
+        data_tests: [unique, not_null]
+      - name: kind
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [count, delta, daily_total]
+
+  - name: fct_entity_signal_daily
+    description: >
+      Grain: entity x day x signal, long and narrow, so a new source adds rows, not columns
+      (D026). Rows exist only where a value was observed. A snapshot delta needs polls on both
+      consecutive days; after a missed poll neither day gets a delta (the change is not split
+      or guessed). is_comparable is false before the signal's comparable_from (for example
+      PyPI before 2026-08-25, D019); those rows stay queryable but never enter a window.
+    columns:
+      - name: signal_key
+        data_tests: [unique, not_null]
+      - name: entity_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_entity')
+                field: entity_id
+      - name: signal
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_signal')
+                field: signal
+      - name: value
+        data_tests: [not_null]
+
+  - name: signal_evidence
+    description: >
+      Grain: one row per (signal row, silver event behind it). Joins any number in
+      fct_entity_signal_daily to silver event_ids, bronze topic/partition/offset and the source
+      URL. A count has one row per event counted, a delta its two snapshots, a PyPI day its one
+      row. Stars are a net counter (D018), so their evidence is the two snapshots, not
+      individual stargazers.
+    columns:
+      - name: evidence_key
+        data_tests: [unique, not_null]
+      - name: signal_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_entity_signal_daily')
+                field: signal_key
+      - name: evidence_role
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [event, snapshot_start, snapshot_end, daily_total]
+
+  - name: entity_signal_rolling
+    description: >
+      Grain: entity x day x signal, every day from the signal's comparable_from to its latest
+      observed day. Rolling 7/14/30-day sum, average per day with data, and days_with_data.
+      Count signals treat a day without events as 0. Delta and daily_total signals leave a
+      missing day null. low_coverage_Nd is true when fewer than 70% of the window's days have
+      data (var min_window_coverage): a 1-2 day gap is tolerated, a long one is flagged. This is
+      the spec's entity_attention_daily and entity_adoption_daily in one table, filtered by
+      signal_class (D026).
+    columns:
+      - name: signal_key
+        data_tests: [unique, not_null]
+      - name: signal_class
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [attention, activity, adoption]
+
+  - name: entity_attention_vs_adoption
+    description: >
+      Grain: entity x day x adoption proxy (pypi_downloads, docker_pulls). Attention is forks.
+      Growth is the average per day with data over the last 14 days vs the 14 days before,
+      minus 1. No composite score: both growth numbers are published with a label (D027).
+
+
+      Label rule (vars in dbt_project.yml): rising means growth above +20%, falling below -20%,
+      flat or worse at most +5%.
+        both_rising: both rising.
+        both_falling: both falling.
+        attention_without_adoption: forks rising, the adoption proxy flat or falling.
+        adoption_without_attention: the adoption proxy rising, forks flat or falling.
+        no_clear_divergence: anything else.
+        insufficient_data: either 14-day window is low_coverage, the prior window had fewer than
+        10 forks, or the adoption proxy averaged under 50 a day before. insufficient_reason says
+        which. The floor stops tiny bases (2 forks becoming 4) from producing loud labels.
+
+
+      Read every row with the entity's adoption_proxy_notes: for some projects the PyPI package
+      is a client SDK, not the server.
+    columns:
+      - name: comparison_key
+        data_tests: [unique, not_null]
+      - name: label
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [both_rising, both_falling, attention_without_adoption,
+                         adoption_without_attention, no_clear_divergence, insufficient_data]
+
+  - name: fork_reconciliation
+    description: >
+      Grain: entity x day. Fork events counted vs the change in GitHub's fork counter between
+      consecutive daily polls, and both summed over the 7 days before (days where both exist).
+      gap_pct_7d = (events - counter change) / counter change. The counter is net of deleted
+      forks, so events run above it for every project (9% to 107% over Oct 30 - Nov 23). Missing
+      events would push the gap negative, so the warn-only test fork_reconciliation_gap flags a
+      gap below -10% on the latest day (D018).
+    columns:
+      - name: reconciliation_key
+        data_tests: [unique, not_null]

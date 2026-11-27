@@ -6,7 +6,7 @@ version: 2
 sources:
   - name: silver
     database: radar
-    schema: silver
+    schema: "{{ var('silver_schema', 'silver') }}"  # drills point this at a scratch copy
     tables:
       - name: events
         description: One row per fact, every source (D024).
