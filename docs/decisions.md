@@ -635,3 +635,99 @@ invariant "resolve entities against `dim_entity`".*
 - **Interview angle:** "Rebuild in full until the rebuild hurts. Incremental is an optimisation
   with a correctness cost, so I wrote down the condition for switching rather than paying it
   up front."
+
+## D026: Gold's fact is long and narrow; snapshot deltas need consecutive polls; windows carry coverage
+*2026-11-25. Shape, gap rule and coverage flag decided by Manav (Q1–Q3).*
+
+- **Context:** Gold turns silver's events into daily signals per project. Signals come in three
+  kinds: GitHub event counts, changes in snapshot counters (stars, Docker pulls), and PyPI's
+  daily totals. Snapshot polls have been missed (Oct 22 for Docker; Nov 7, 18 and 19 for both).
+  HN is coming next.
+- **Decision:**
+  - **`fct_entity_signal_daily`: one row per entity × day × signal**, with `value`,
+    `signal_class` and `is_comparable`. A new source or signal adds rows, not columns.
+    `dim_signal` lists each signal, its kind and its `comparable_from` date.
+  - **Snapshot deltas need polls on consecutive days.** A delta is the change from one day's
+    poll to the next day's, dated to the earlier day: polls run around 06:00 UTC, so most of
+    the interval falls on that day. After a missed poll, *neither* neighbouring day gets a
+    delta. Nothing is split or guessed.
+  - **`entity_signal_rolling`: rolling 7/14/30-day windows over a date spine.**
+    - A day without events counts as 0.
+    - A missed snapshot or PyPI day stays null.
+    - `avg_Nd` is the average per day with data, so a gap doesn't drag it down.
+    - `days_with_data_Nd` and `low_coverage_Nd` (under 70% of days) flag windows that rest
+      on too little.
+    - Only comparable days enter a window, so no PyPI window spans the D019 break.
+  - **One rolling table, filtered by `signal_class`,** instead of the spec's separate
+    `entity_attention_daily` and `entity_adoption_daily`. It's the same narrow principle.
+  - **`signal_evidence`** has one row per (signal row, silver event): every counted event, both
+    snapshots behind a delta, or the PyPI row. A test checks that each count has exactly
+    `value` evidence rows.
+- **Alternatives:**
+  - **Wide fact** (a column per signal). Easier to eyeball, but every source is a schema change.
+  - **Spread a two-day change evenly.** It invents daily numbers we never observed.
+  - **Date the whole change to the later day.** Rejected by Manav: it mixes two days into one.
+  - **A strict "complete window" flag.** Too strict for a trend tool. One or two missing days
+    shouldn't blank a 7- or 14-day window.
+- **Trade-off:**
+  - A missed poll costs two days of deltas, not one.
+  - A 7-day star sum across a gap undercounts. Averages and the coverage flag make that visible,
+    not hidden.
+  - A missed *producer* run would look like a real zero in event counts. The `no_missing_event_days`
+    test warns on any day with zero GitHub events across all projects.
+- **Interview angle:** "Absence means different things per signal: no forks is a real zero, a
+  missed poll is unknown. I modelled that difference instead of filling it in."
+
+## D027: Attention vs adoption is a labelled side-by-side comparison, never a score
+*2026-11-25. Decided by Manav (Q4): 14 vs 14 days, numbers plus a label.*
+
+- **Context:** The project asks whether attention turns into adoption. A single "hype score"
+  is the obvious product shape, and the spec already rules it out.
+- **Decision:**
+  - `entity_attention_vs_adoption` has one row per entity × day × adoption proxy (PyPI
+    downloads, Docker pulls).
+  - **Attention is forks for now.** They have 90 days of history; stars only start on Oct 30.
+  - **Growth** = the average per day with data over the last 14 days vs the 14 days before,
+    minus 1. It's computed by joining each row to the row 14 days earlier.
+  - **Labels:**
+    - `both_rising` and `both_falling`
+    - `attention_without_adoption` and `adoption_without_attention`
+    - `no_clear_divergence`
+    - `insufficient_data`, with `insufficient_reason` (`low_coverage`, `low_attention_volume`,
+      `low_adoption_volume`)
+  - **Thresholds** are dbt vars, documented in the model's YAML: rising > +20%, falling < −20%,
+    flat at most +5%.
+  - **Volume floor:** at least 10 forks in the prior 14 days, and at least 50 a day for the
+    adoption proxy. That stops 2 → 4 forks from reading as +100%.
+- **Alternatives:**
+  - **A weighted score.** The weights are opinions nobody can check, the proxies mean different
+    things per project (client SDK vs server), and one number hides which signal moved.
+  - **A raw ratio** such as forks per download. The units differ, and the scale varies about
+    1000× across projects.
+- **Trade-off:** Growth is a percentage, so it ignores size: a small project and vLLM get the
+  same labels. That's on purpose; the averages are published next to it. The label is only as
+  good as the proxy, so `adoption_proxy_notes` travels with every row.
+- **Interview angle:** "I published the comparison, the rule and the caveat, not a score. A
+  reader can check every label against two numbers."
+
+## D028: Fork reconciliation warns only when events fall short of the counter
+*2026-11-25. Amends D018's reconciliation.*
+
+- **Context:** `fork_reconciliation` compares fork events we counted with the change in
+  GitHub's fork counter over 7 days. On the first build, events exceeded the counter's growth
+  for **every** project over Oct 30 – Nov 23: sglang +9%, vLLM +26%, litellm +34%, ollama +107%.
+  The likely reason is deleted forks: the counter is net, while each event is a fork that
+  existed when we fetched it, within a day of its creation. This hasn't been verified against
+  GitHub directly.
+- **Decision:** The warn-only test fires when the gap is **below −10%** (we counted fewer events
+  than the counter grew), with at least 20 forks and 5 comparable days. That's the direction
+  missing events would show. Surplus events aren't flagged.
+- **Alternatives:**
+  - **A two-sided ±10% test** (the first version). It would warn for most projects every day
+    and teach us to ignore it.
+  - **A tolerance per project, learned from history.** More precise, but more machinery than a
+    warn-only check needs.
+- **Trade-off:** A bug that *duplicated* fork events wouldn't trip this check. The `unique`
+  tests on `event_id` cover that instead.
+- **Interview angle:** "A reconciliation check should point in the direction of the failure
+  it's looking for. The counter is net of deletions, so only a shortfall means missing data."

@@ -90,13 +90,19 @@ Daily pollers run as a scheduled Databricks Job (D008).
 
 ## Gold: dbt
 
-- `dim_entity`, `dim_source`
-- `fct_entity_signal_daily`
-- `entity_attention_daily`, `entity_adoption_daily`: rolling 7/14/30-day windows; Docker pull
-  deltas computed from successive snapshots
-- `entity_attention_vs_adoption`: growth comparison plus divergence flags, with documented thresholds
+dbt Core v1 with `dbt-databricks`; staging views, marts rebuilt as tables (D025).
+
+- `dim_entity`, `dim_source`, `dim_signal`
+- `fct_entity_signal_daily`: entity × day × signal, long and narrow. Star and Docker pull deltas
+  come from consecutive daily snapshots; a missed poll leaves both neighbouring days empty (D026)
+- `entity_signal_rolling`: rolling 7/14/30-day windows with coverage flags, all signal classes
+  in one table (the spec's `entity_attention_daily` / `entity_adoption_daily`, D026)
+- `entity_attention_vs_adoption`: forks vs each adoption proxy, 14 days vs the 14 before, both
+  growth numbers plus a label, thresholds documented in the YAML (D027)
 - `signal_evidence`: signal → silver event_ids → bronze offsets → source URLs
-- dbt tests + source freshness checks
+- `fork_reconciliation`: fork events vs GitHub's fork counter (D018, D028)
+- dbt tests (unique/not_null, unit tests, quarantine alarm, gap checks) + per-producer source
+  freshness
 
 ## Serving
 

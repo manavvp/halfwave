@@ -67,7 +67,11 @@ Run by Manav on Databricks Free Edition, 2026-10-01/02. Spike notebook export pe
   49 on Nov 18, against about 240 on a normal day. They can be re-fetched, but silver's
   watermark has passed them, so recovery is a producer run plus a silver full refresh. PyPI was
   complete (the 3-day lookback covered it). Freshness checks all passed on Nov 25, because they
-  only look at the newest row.
+  only look at the newest row. **Recovered 2026-11-25:** `github --date 2026-11-18 --days 2`
+  (4,142 events), the two GitHub bronze tasks (`jobs run-now` with `only`), then a silver full
+  refresh. Bronze had 15 files, so the refresh read it in one micro-batch and nothing was
+  dropped as late. Silver went from 149,837 to 152,991 events, all unique. Forks now show 245 on
+  Nov 17 and 247 on Nov 18. The daily table has 0 mismatches against a recount.
 
 ## Drills
 
@@ -102,3 +106,18 @@ five pipeline updates. Result on 2026-11-09 (against the dev copy and dev regist
 | 1 | Duplicate replay: run 2 re-fetches fork B (the 6 h overlap) plus C | Bronze keeps both copies of B (4 rows); silver has A, B, C once each | ✅ Bronze 4 rows; silver `ABC` |
 | 2 | Late event: run 3 brings D dated Nov 6 15:00 (watermark is Nov 7 22:00) plus E at Nov 8 23:00 | D dropped as late, E kept. Nov 7 closes with 2; no Nov 6 row | ✅ Silver `ABCE`; daily `[2026-11-07, 2]` only |
 | 3 | Poison pill: valid header + corrupt Avro body, plus a fork of a repo not in the registry | Update completes; silver unchanged; quarantine has `decode_failed` (offset 6) and `unresolved_entity` (offset 7) | ✅ Exactly that |
+
+### Gold: `drills/gold_drills.py` (scratch schemas `silver_drill`, `gold_drill`)
+
+Run locally: export `DBT_DATABRICKS_HOST` and `DBT_DATABRICKS_HTTP_PATH` (from `.env`), then
+`python drills/gold_drills.py`. It copies the four silver tables into `radar.silver_drill`, builds
+dbt's `drill` target against them (`--vars silver_schema: silver_drill`), breaks the copy one
+way per drill, and drops both schemas at the end (`--keep` to inspect). About 6 minutes. Result
+on 2026-11-25: **7/7 checks passed.**
+
+| # | Drill | Expected | Observed |
+|---|---|---|---|
+| 0 | Baseline: build gold from an untouched copy | Nothing fails or warns | ✅ |
+| 1 | A duplicate `event_id` slips past silver's dedup | `unique` on `stg_events.event_id` fails: gold detects, doesn't fix (D003) | ✅ fail |
+| 2 | The snapshot poll of Nov 12 never happened | `no_new_snapshot_gaps` warns; no `stars_net` on Nov 11 or 12; Nov 10 and 13 keep 25 each; evidence still matches every row (D026) | ✅ exactly that |
+| 3 | A `decode_failed` row lands in quarantine | `quarantine_volume` fails the build (D021) | ✅ fail |
