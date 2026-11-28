@@ -19,7 +19,7 @@ dev = ["ruff>=0.6", "pytest>=8", "pyspark~=4.0"]
 dbt = ["dbt-databricks~=1.13"]
 
 [tool.setuptools.packages.find]
-include = ["producers*", "transforms*"]
+include = ["producers*", "transforms*", "serving*"]
 
 [tool.ruff]
 line-length = 100
