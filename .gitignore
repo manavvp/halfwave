@@ -28,3 +28,6 @@ CLAUDE.md
 
 # Personal revision notes (local only)
 docs/revision-log.md
+
+# dbt anonymous usage id
+dbt/.user.yml
