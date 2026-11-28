@@ -84,6 +84,14 @@ Run by Manav on Databricks Free Edition, 2026-10-01/02. Spike notebook export pe
 - **Two failure-alert addresses on `radar-daily` were misspelled** (`radar-poll-dockerhub`,
   `bronze_github_events`), so those alerts never arrived. Fixed 2026-11-28. `radar-poll-pypi`,
   `bronze_pypi`, `load_registry` and `silver` still have no failure alert.
+- **MongoDB Atlas pauses an idle free cluster.** Found 2026-11-28, before the sync existed: the
+  SRV record `_mongodb._tcp.cluster0.n5uypur.mongodb.net` didn't resolve
+  (`ConfigurationError: The DNS query name does not exist`). Logging in isn't enough; press
+  **Resume** on the cluster (1–3 minutes). The URI and network access list survive. The daily
+  sync should keep it active from now on.
+- **The Atlas user has `readWrite`, not admin.** It can't drop a database (`dropDatabase` →
+  `AtlasError 8000`), only collections. That's on purpose: keep it least-privilege. Drills drop
+  their collection instead.
 
 ## Drills
 
@@ -133,3 +141,16 @@ on 2026-11-25: **7/7 checks passed.**
 | 1 | A duplicate `event_id` slips past silver's dedup | `unique` on `stg_events.event_id` fails: gold detects, doesn't fix (D003) | ✅ fail |
 | 2 | The snapshot poll of Nov 12 never happened | `no_new_snapshot_gaps` warns; no `stars_net` on Nov 11 or 12; Nov 10 and 13 keep 25 each; evidence still matches every row (D026) | ✅ exactly that |
 | 3 | A `decode_failed` row lands in quarantine | `quarantine_volume` fails the build (D021) | ✅ fail |
+
+### Serving: `drills/serving_drills` (Databricks notebook, scratch database `radar_drill`)
+
+Run on Databricks (it needs the `mongodb-uri` secret and reads `radar.gold` with Spark): open
+the notebook in the Git folder and run all, or submit it as a one-time run. It builds the real
+documents from gold, syncs them into `radar_drill.entities`, and drops that collection at the
+end. About 2 minutes. Result on 2026-11-28: **9/9 checks passed.**
+
+| # | Drill | Expected | Observed |
+|---|---|---|---|
+| 1 | Sync twice | First sync inserts 25; second matches 25 and inserts 0; documents identical apart from `synced_at`; stored = built | ✅ exactly that |
+| 2 | Plant `stale_field` on vllm and a `ray-serve` document, then sync | `ray-serve` deleted (1); only the 25 registry ids remain; `stale_field` gone (D029) | ✅ exactly that |
+| 3 | Sync with empty gold, then with 24 of 25 documents | Both refused by the guard; collection unchanged | ✅ both refused, unchanged |

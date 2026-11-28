@@ -731,3 +731,45 @@ invariant "resolve entities against `dim_entity`".*
   tests on `event_id` cover that instead.
 - **Interview angle:** "A reconciliation check should point in the direction of the failure
   it's looking for. The counter is net of deletions, so only a shortfall means missing data."
+
+## D029: Gold is served from MongoDB, synced daily, one document per entity, replaced whole
+*2026-11-28. Decided by Manav (keep MongoDB + FastAPI; evidence deferred, option a).*
+
+- **Context:** The website needs an API, and the API needs data. The obvious shortcut is to query
+  the gold tables in Unity Catalog directly. On Free Edition that would put website traffic on
+  the same SQL warehouse and daily compute quota as the pipeline: a busy day could shut compute
+  down and stop the 06:00 run. The warehouse also stops when idle, so the first visitor would
+  wait for a cold start, and the public API would need a Databricks token.
+- **Decision:**
+  - A job task, `sync_mongo`, runs after `gold` (only if it succeeded). It builds one
+    document per entity from five marts (`serving/documents.py`, pure Python, unit-tested) and
+    writes them to Atlas, database `radar`, collection `entities`, `_id = entity_id`.
+  - A document holds the registry entry, the latest comparisons, 30 days of label history, and
+    per signal: metadata, latest 7/14/30-day windows, days without data, and the full daily
+    series. It also holds the latest fork reconciliation. Dates are ISO strings.
+  - **Replace whole, by `_id`, with upsert,** then delete documents for entities no longer in
+    the registry. Mongo mirrors gold: a rerun gives the same documents, and a field gold stops
+    producing disappears.
+  - **Guard:** nothing is written unless gold yields exactly one document per entity in
+    `radar.silver.entity_registry`. An empty or half-built gold can't wipe the API's data.
+  - **Gated on tests:** a failed dbt test fails `gold`, so the sync doesn't run and yesterday's
+    documents stay online.
+  - **Evidence is not synced yet.** It's 155k rows growing by about 2k a day. When the website
+    needs drill-down, an `evidence` collection keyed by `signal_key` is added alongside.
+- **Alternatives:**
+  - **Query Unity Catalog from the API.** Rejected for the reasons above.
+  - **Static JSON files on the website's host.** The fewest moving parts, and enough for 25
+    entities, but every view the site wants (sort, filter, compare, drill-down) would have to be
+    pre-computed into files.
+  - **Partial updates with `$set`.** Smaller writes, but fields that gold drops would linger.
+  - **Write a new collection and rename it over the old one,** so readers never see a mix of
+    old and new documents. The mix lasts under a second once a day and every document carries
+    its `as_of`, so it isn't worth the extra step.
+- **Trade-off:** A second store to keep in sync and a second set of credentials. Documents are
+  about 40 KB each, so the free tier's 512 MB isn't a concern until evidence arrives. Atlas
+  pauses an idle free cluster (it happened before this sync existed); a daily sync connects
+  every day, which should keep it active.
+- **Interview angle:** "I didn't serve from the warehouse, because reads would share compute
+  with the pipeline. Gold is pushed once a day to a document store shaped like the API response,
+  replaced whole and only after the tests pass. At 25 entities a JSON file would do; the pattern
+  is what scales."
