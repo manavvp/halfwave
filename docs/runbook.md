@@ -92,6 +92,8 @@ Run by Manav on Databricks Free Edition, 2026-10-01/02. Spike notebook export pe
 - **The Atlas user has `readWrite`, not admin.** It can't drop a database (`dropDatabase` →
   `AtlasError 8000`), only collections. That's on purpose: keep it least-privilege. Drills drop
   their collection instead.
+- **`sync_mongo` runs in `radar-daily`** (added 2026-11-28) after `gold`, only if it succeeded.
+  First run: 25 upserted, 0 deleted; documents 24–36 KB (785 KB total).
 
 ## Drills
 

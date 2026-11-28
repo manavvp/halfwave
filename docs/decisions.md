@@ -766,7 +766,7 @@ invariant "resolve entities against `dim_entity`".*
     old and new documents. The mix lasts under a second once a day and every document carries
     its `as_of`, so it isn't worth the extra step.
 - **Trade-off:** A second store to keep in sync and a second set of credentials. Documents are
-  about 40 KB each, so the free tier's 512 MB isn't a concern until evidence arrives. Atlas
+  24–36 KB each (785 KB for all 25 on the first sync), so the free tier's 512 MB isn't a concern until evidence arrives. Atlas
   pauses an idle free cluster (it happened before this sync existed); a daily sync connects
   every day, which should keep it active.
 - **Interview angle:** "I didn't serve from the warehouse, because reads would share compute
