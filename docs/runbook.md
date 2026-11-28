@@ -72,6 +72,18 @@ Run by Manav on Databricks Free Edition, 2026-10-01/02. Spike notebook export pe
   refresh. Bronze had 15 files, so the refresh read it in one micro-batch and nothing was
   dropped as late. Silver went from 149,837 to 152,991 events, all unique. Forks now show 245 on
   Nov 17 and 247 on Nov 18. The daily table has 0 mismatches against a recount.
+- **Gold runs as the `gold` task in `radar-daily`** (added 2026-11-28), after `silver` with
+  `run_if: ALL_DONE`, so freshness still reports when an upstream task failed. It's a dbt task
+  on SQL warehouse `a5bcbd36875657af` with its own serverless environment (`dbt`, installs
+  `dbt-databricks~=1.13`), running `dbt build` then `dbt source freshness` against the Git
+  folder's `dbt/`. **Databricks generates the profile** (target `databricks_cluster`, catalog
+  `radar`, schema `gold`) from the task settings, so the repo's `profiles.yml` and its env vars
+  are only used locally. Never add `--target` to the task's commands: the generated profile has
+  no `dev` or `prod` target. First run 2026-11-27: 62/62 in 30 s, freshness 4/4. dbt's run
+  artifacts are under the task run's output (`jobs get-run-output <task run id>`).
+- **Two failure-alert addresses on `radar-daily` were misspelled** (`radar-poll-dockerhub`,
+  `bronze_github_events`), so those alerts never arrived. Fixed 2026-11-28. `radar-poll-pypi`,
+  `bronze_pypi`, `load_registry` and `silver` still have no failure alert.
 
 ## Drills
 

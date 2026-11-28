@@ -23,3 +23,8 @@ Not in V1. Ideas land here by default instead of expanding scope.
   the PyPI break). "Why?": click a spike to list the evidence (`signal_evidence`, linking to
   GitHub). Plus a methodology page, a compare view (2–3 projects overlaid) and a weekly digest
   of label changes. The gold marts and the Mongo document already map to these screens.
+- **Spike-robust labels.** On 2026-11-23 SGLang read as attention without adoption (PyPI −44%),
+  but the drop came from a three-day burst (78k–137k downloads a day on Oct 26–28, about 10×
+  normal) sitting in the prior window. Two days later it had rolled out and the label was gone.
+  Options: the median instead of the mean per window, or a label that must hold for N
+  consecutive days before it shows. Decide before the README picks its finding.
